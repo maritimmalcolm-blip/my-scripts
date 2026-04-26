@@ -1,59 +1,117 @@
--- COMPLETE SCRIPT - All 4 Buttons Visible + Anti-Ragdoll
+-- MLZ DUELS - All 5 Buttons Visible (Fixed Positions)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Stats = game:GetService("Stats")
+local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 
--- Variables
+-- ============ VARIABLES ============
 local originalSpeed = 16
 local speedModified = false
 local dropEnabled = false
 local infinityJumpEnabled = true
-local antiRagdollEnabled = true
 local jumpForce = 50
 local clampFallSpeed = 80
+local autoDuelGui = nil
 
--- ============ ANTI-RAGDOLL FUNCTION ============
-local function fixRagdoll()
-    local character = player.Character
-    if not character then return end
+-- ============ FPS AND PING DISPLAY ============
+local function createTopBar()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "MLZDuels"
+    ScreenGui.Parent = player.PlayerGui
+    ScreenGui.ResetOnSpawn = false
     
-    local humanoid = character:FindFirstChild("Humanoid")
-    if not humanoid then return end
+    local TopBar = Instance.new("Frame")
+    TopBar.Parent = ScreenGui
+    TopBar.Size = UDim2.new(0, 200, 0, 25)
+    TopBar.Position = UDim2.new(0.5, -100, 0, 5)
+    TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+    TopBar.BackgroundTransparency = 0.2
+    TopBar.BorderSizePixel = 0
     
-    local currentState = humanoid:GetState()
+    local TopCorner = Instance.new("UICorner")
+    TopCorner.Parent = TopBar
+    TopCorner.CornerRadius = UDim.new(0, 8)
     
-    local badStates = {
-        Enum.HumanoidStateType.Ragdoll,
-        Enum.HumanoidStateType.FallingDown,
-        Enum.HumanoidStateType.GettingUp,
-        Enum.HumanoidStateType.Stunned,
-        Enum.HumanoidStateType.Physics,
-        Enum.HumanoidStateType.Seated,
-    }
+    local Title = Instance.new("TextLabel")
+    Title.Parent = TopBar
+    Title.Size = UDim2.new(0, 70, 1, 0)
+    Title.Position = UDim2.new(0.05, 0, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Font = Enum.Font.GothamBold
+    Title.Text = "MLZ DUELS"
+    Title.TextColor3 = Color3.fromRGB(255, 200, 100)
+    Title.TextSize = 11
     
-    for _, state in ipairs(badStates) do
-        if currentState == state then
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            humanoid.AutoRotate = true
-            humanoid.PlatformStand = false
-            humanoid.Sit = false
-            break
+    local FPSLabel = Instance.new("TextLabel")
+    FPSLabel.Parent = TopBar
+    FPSLabel.Size = UDim2.new(0, 50, 1, 0)
+    FPSLabel.Position = UDim2.new(0.4, 0, 0, 0)
+    FPSLabel.BackgroundTransparency = 1
+    FPSLabel.Font = Enum.Font.GothamBold
+    FPSLabel.Text = "FPS: --"
+    FPSLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    FPSLabel.TextSize = 10
+    
+    local PingLabel = Instance.new("TextLabel")
+    PingLabel.Parent = TopBar
+    PingLabel.Size = UDim2.new(0, 55, 1, 0)
+    PingLabel.Position = UDim2.new(0.65, 0, 0, 0)
+    PingLabel.BackgroundTransparency = 1
+    PingLabel.Font = Enum.Font.GothamBold
+    PingLabel.Text = "Ping: --"
+    PingLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+    PingLabel.TextSize = 10
+    
+    -- FPS Counter
+    local frameCount = 0
+    local lastTime = tick()
+    
+    RunService.RenderStepped:Connect(function()
+        frameCount = frameCount + 1
+        local currentTime = tick()
+        if currentTime - lastTime >= 1 then
+            FPSLabel.Text = "FPS: " .. frameCount
+            frameCount = 0
+            lastTime = currentTime
+        end
+    end)
+    
+    -- Fixed Ping Counter
+    local function updatePing()
+        local success, pingValue = pcall(function()
+            local networkStats = Stats:FindFirstChild("Network")
+            if networkStats then
+                local pingStat = networkStats:FindFirstChild("Ping")
+                if pingStat then
+                    return math.floor(pingStat.Value)
+                end
+            end
+            return nil
+        end)
+        
+        if success and pingValue then
+            PingLabel.Text = "Ping: " .. pingValue
+            if pingValue <= 100 then
+                PingLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            else
+                PingLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            end
         end
     end
+    
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            updatePing()
+        end
+    end)
+    
+    updatePing()
 end
 
-local function fixPhysics()
-    local character = player.Character
-    if not character then return end
-    
-    local humanoidRoot = character:FindFirstChild("HumanoidRootPart")
-    if humanoidRoot then
-        if humanoidRoot.Velocity.Y < -50 then
-            humanoidRoot.Velocity = Vector3.new(humanoidRoot.Velocity.X, -30, humanoidRoot.Velocity.Z)
-        end
-    end
-end
+createTopBar()
 
 -- ============ INFINITE JUMP ============
 RunService.Heartbeat:Connect(function()
@@ -78,67 +136,54 @@ end)
 
 local function toggleInfiniteJump()
     infinityJumpEnabled = not infinityJumpEnabled
-    return infinityJumpEnabled and "ON" or "OFF"
+    return infinityJumpEnabled
 end
 
 -- ============ NO FALL DAMAGE ============
-local function enableNoFallDamage()
-    player.CharacterAdded:Connect(function(character)
-        task.wait(0.5)
-        local humanoid = character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-            humanoid.BreakJointsOnDeath = false
-        end
-    end)
-    local character = player.Character
-    if character then
-        local humanoid = character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-            humanoid.BreakJointsOnDeath = false
-        end
-    end
-end
-enableNoFallDamage()
-
--- ============ CARRY SPEED FUNCTION ============
-local function setCarrySpeed()
-    local character = player.Character
-    if not character then return "error" end
+player.CharacterAdded:Connect(function(character)
+    task.wait(0.5)
     local humanoid = character:FindFirstChild("Humanoid")
-    if not humanoid then return "error" end
+    if humanoid then
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        humanoid.BreakJointsOnDeath = false
+    end
+end)
+
+if player.Character and player.Character:FindFirstChild("Humanoid") then
+    local humanoid = player.Character.Humanoid
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+    humanoid.BreakJointsOnDeath = false
+end
+
+-- ============ CARRY SPEED ============
+local function setCarrySpeed()
+    local humanoid = player.Character and player.Character:FindFirstChild("Humanoid")
+    if not humanoid then return end
     
     if not speedModified then
         originalSpeed = humanoid.WalkSpeed
         humanoid.WalkSpeed = 29.4
         speedModified = true
-        return "carry"
     else
         humanoid.WalkSpeed = originalSpeed
         speedModified = false
-        return "reset"
     end
 end
 
 -- ============ DROP/FLING ============
-local function toggleDrop(state)
-    dropEnabled = state
+local function toggleDrop()
+    dropEnabled = not dropEnabled
     if dropEnabled then
         task.spawn(function()
             while dropEnabled do
                 RunService.Heartbeat:Wait()
-                local c = player.Character
-                local root = c and c:FindFirstChild("HumanoidRootPart")
-                if not root then continue end
-                local vel = root.Velocity
-                root.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
-                RunService.RenderStepped:Wait()
-                if root and root.Parent then root.Velocity = vel end
-                RunService.Stepped:Wait()
-                if root and root.Parent then root.Velocity = vel + Vector3.new(0, 0.1, 0) end
+                local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local vel = root.Velocity
+                    root.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
+                end
             end
         end)
     end
@@ -147,97 +192,443 @@ end
 -- ============ TP DOWN ============
 local function teleportToGround()
     local character = player.Character
-    if not character then return false end
+    if not character then return end
     local humanoid = character:FindFirstChild("Humanoid")
     local rootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not rootPart then return false end
-    if dropEnabled then dropEnabled = false end
+    if not humanoid or not rootPart then return end
+    
     local raycastParams = RaycastParams.new()
     raycastParams.FilterDescendantsInstances = {character}
-    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
     local rayResult = workspace:Raycast(rootPart.Position, Vector3.new(0, -500, 0), raycastParams)
     local groundY = rayResult and rayResult.Position.Y or 0
     local teleportPos = Vector3.new(rootPart.Position.X, groundY + 3, rootPart.Position.Z)
+    
     rootPart.CFrame = CFrame.new(teleportPos)
-    humanoid.PlatformStand = false
-    humanoid.Sit = false
     rootPart.Velocity = Vector3.new(0, 0, 0)
-    rootPart.RotVelocity = Vector3.new(0, 0, 0)
     humanoid.Health = humanoid.MaxHealth
-    return true
 end
 
--- ============ ANTI-RAGDOLL MAIN LOOP ============
-RunService.Heartbeat:Connect(function()
-    if antiRagdollEnabled then
-        fixRagdoll()
-        fixPhysics()
+-- ============ AUTO DUEL GUI ============
+local function createAutoDuelGUI()
+    if autoDuelGui and autoDuelGui.Parent then
+        autoDuelGui:Destroy()
+        autoDuelGui = nil
+        return
     end
-end)
-
--- ============ CREATE MOVEABLE BUTTON ============
-local function createMoveableButton(name, text, startPos)
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = name .. "Button"
-    ScreenGui.Parent = player.PlayerGui
-    ScreenGui.ResetOnSpawn = false
     
-    local button = Instance.new("TextButton")
-    button.Parent = ScreenGui
-    button.Size = UDim2.new(0, 130, 0, 40)
-    button.Position = startPos
-    button.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
-    button.BackgroundTransparency = 0.35
-    button.Text = text
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Font = Enum.Font.GothamBold
-    button.TextSize = 12
-    button.AutoButtonColor = true
-    button.BorderSizePixel = 0
+    local rightWaypoints = {
+        Vector3.new(-473.04, -6.99, 29.71),
+        Vector3.new(-483.57, -5.10, 18.74),
+        Vector3.new(-475.00, -6.99, 26.43),
+        Vector3.new(-474.67, -6.94, 105.48),
+    }
+    local leftWaypoints = {
+        Vector3.new(-472.49, -7.00, 90.62),
+        Vector3.new(-484.62, -5.10, 100.37),
+        Vector3.new(-475.08, -7.00, 93.29),
+        Vector3.new(-474.22, -6.96, 16.18),
+    }
+
+    local patrolMode = "none"
+    local floating = false
+    local currentWaypoint = 1
+    local heartbeatConn
+    local waitingForCountdownLeft = false
+    local waitingForCountdownRight = false
+    local AUTO_START_DELAY = 0.7
+
+    local function isCountdownNumber(text)
+        local num = tonumber(text)
+        if num and num >= 1 and num <= 5 then
+            return true, num
+        end
+        return false
+    end
+
+    local function isTimerInCountdown(label)
+        if not label then return false end
+        local ok, num = isCountdownNumber(label.Text)
+        return ok and num >= 1 and num <= 5
+    end
+
+    local function getCurrentSpeed()
+        if patrolMode == "right" then
+            return currentWaypoint >= 3 and 29.4 or 60
+        elseif patrolMode == "left" then
+            return currentWaypoint >= 3 and 29.4 or 60
+        end
+        return 0
+    end
+
+    local function getCurrentWaypoints()
+        if patrolMode == "right" then
+            return rightWaypoints
+        elseif patrolMode == "left" then
+            return leftWaypoints
+        end
+        return {}
+    end
+
+    local function startMovement(mode)
+        patrolMode = mode
+        currentWaypoint = 1
+        if mode == "right" then
+            rightBtn.Text = "STOP Right"
+            TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(80, 40, 40)}):Play()
+        else
+            leftBtn.Text = "STOP Left"
+            TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(80, 40, 40)}):Play()
+        end
+    end
+
+    local function updateWalking()
+        local char = player.Character
+        if not char then return end
+
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChild("Humanoid")
+        if not root or not hum then return end
+
+        local currentVel = root.AssemblyLinearVelocity
+
+        if floating then
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+            raycastParams.FilterDescendantsInstances = {char}
+
+            local raycastResult = workspace:Raycast(root.Position, Vector3.new(0, -50, 0), raycastParams)
+
+            if raycastResult then
+                local groundY = raycastResult.Position.Y
+                local targetY = groundY + 8
+                local currentY = root.Position.Y
+                local yDifference = targetY - currentY
+
+                if math.abs(yDifference) > 0.3 then
+                    root.AssemblyLinearVelocity = Vector3.new(
+                        currentVel.X,
+                        yDifference * 15,
+                        currentVel.Z
+                    )
+                else
+                    root.AssemblyLinearVelocity = Vector3.new(
+                        currentVel.X,
+                        0,
+                        currentVel.Z
+                    )
+                end
+            end
+        end
+
+        if patrolMode ~= "none" then
+            local waypoints = getCurrentWaypoints()
+            local targetPos = waypoints[currentWaypoint]
+            local currentPos = root.Position
+
+            local targetXZ = Vector3.new(targetPos.X, 0, targetPos.Z)
+            local currentXZ = Vector3.new(currentPos.X, 0, currentPos.Z)
+            local distanceXZ = (targetXZ - currentXZ).Magnitude
+
+            if distanceXZ > 3 then
+                local moveDirection = (targetXZ - currentXZ).Unit
+                local currentSpeed = getCurrentSpeed()
+
+                root.AssemblyLinearVelocity = Vector3.new(
+                    moveDirection.X * currentSpeed,
+                    root.AssemblyLinearVelocity.Y,
+                    moveDirection.Z * currentSpeed
+                )
+            else
+                if currentWaypoint == #waypoints then
+                    patrolMode = "none"
+                    currentWaypoint = 1
+                    waitingForCountdownLeft = false
+                    waitingForCountdownRight = false
+
+                    rightBtn.Text = "AutoRight"
+                    leftBtn.Text = "AutoLeft"
+                    TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(45, 45, 45)}):Play()
+                    TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(45, 45, 45)}):Play()
+
+                    root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+                else
+                    currentWaypoint = currentWaypoint + 1
+                end
+            end
+        end
+    end
+
+    -- Create GUI
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "AutoDuel"
+    sg.Parent = player:WaitForChild("PlayerGui")
+    sg.ResetOnSpawn = false
+    
+    autoDuelGui = sg
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 220, 0, 170)
+    MainFrame.Position = UDim2.new(0.5, -110, 0.5, -85)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+    MainFrame.BackgroundTransparency = 0.1
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = sg
+
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 12)
+    UICorner.Parent = MainFrame
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 28)
+    Title.Position = UDim2.new(0, 0, 0, 5)
+    Title.BackgroundTransparency = 1
+    Title.Text = "MLZ Auto Duel"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.TextSize = 16
+    Title.Font = Enum.Font.GothamSemibold
+    Title.Parent = MainFrame
+
+    local function addHoverEffects(btn, normalColor, hoverColor)
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = hoverColor}):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = normalColor}):Play()
+        end)
+    end
+
+    -- Right button
+    local rightBtn = Instance.new("TextButton")
+    rightBtn.Size = UDim2.new(0.85, 0, 0, 32)
+    rightBtn.Position = UDim2.new(0.075, 0, 0, 45)
+    rightBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    rightBtn.Text = "AutoRight"
+    rightBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    rightBtn.TextSize = 12
+    rightBtn.Font = Enum.Font.GothamBold
+    rightBtn.BorderSizePixel = 0
+    rightBtn.AutoButtonColor = false
+    rightBtn.Parent = MainFrame
+
+    local rightBtnCorner = Instance.new("UICorner")
+    rightBtnCorner.CornerRadius = UDim.new(0, 8)
+    rightBtnCorner.Parent = rightBtn
+    addHoverEffects(rightBtn, Color3.fromRGB(45,45,45), Color3.fromRGB(70,70,70))
+
+    -- Left button
+    local leftBtn = Instance.new("TextButton")
+    leftBtn.Size = UDim2.new(0.85, 0, 0, 32)
+    leftBtn.Position = UDim2.new(0.075, 0, 0, 82)
+    leftBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    leftBtn.Text = "AutoLeft"
+    leftBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    leftBtn.TextSize = 12
+    leftBtn.Font = Enum.Font.GothamBold
+    leftBtn.BorderSizePixel = 0
+    leftBtn.AutoButtonColor = false
+    leftBtn.Parent = MainFrame
+
+    local leftBtnCorner = Instance.new("UICorner")
+    leftBtnCorner.CornerRadius = UDim.new(0, 8)
+    leftBtnCorner.Parent = leftBtn
+    addHoverEffects(leftBtn, Color3.fromRGB(45,45,45), Color3.fromRGB(70,70,70))
+
+    -- Float button
+    local floatBtn = Instance.new("TextButton")
+    floatBtn.Size = UDim2.new(0.85, 0, 0, 32)
+    floatBtn.Position = UDim2.new(0.075, 0, 0, 119)
+    floatBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    floatBtn.Text = "Float OFF"
+    floatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    floatBtn.TextSize = 12
+    floatBtn.Font = Enum.Font.GothamBold
+    floatBtn.BorderSizePixel = 0
+    floatBtn.AutoButtonColor = false
+    floatBtn.Parent = MainFrame
+
+    local floatBtnCorner = Instance.new("UICorner")
+    floatBtnCorner.CornerRadius = UDim.new(0, 8)
+    floatBtnCorner.Parent = floatBtn
+    addHoverEffects(floatBtn, Color3.fromRGB(45,45,45), Color3.fromRGB(70,70,70))
+
+    -- Button functions
+    rightBtn.MouseButton1Click:Connect(function()
+        if patrolMode == "right" or waitingForCountdownRight then
+            patrolMode = "none"
+            currentWaypoint = 1
+            waitingForCountdownRight = false
+            rightBtn.Text = "AutoRight"
+            TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(45, 45, 45)}):Play()
+            leftBtn.Text = "AutoLeft"
+            TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(45, 45, 45)}):Play()
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, char.HumanoidRootPart.AssemblyLinearVelocity.Y, 0)
+            end
+        else
+            local success, label = pcall(function()
+                return player.PlayerGui:FindFirstChild("DuelsMachineTopFrame") and player.PlayerGui.DuelsMachineTopFrame:FindFirstChild("DuelsMachineTopFrame") and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame:FindFirstChild("Timer") and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame.Timer:FindFirstChild("Label")
+            end)
+            if success and label and isTimerInCountdown(label) then
+                waitingForCountdownRight = true
+                rightBtn.Text = "Waiting..."
+                TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(255, 200, 50)}):Play()
+            else
+                startMovement("right")
+            end
+        end
+    end)
+
+    leftBtn.MouseButton1Click:Connect(function()
+        if patrolMode == "left" or waitingForCountdownLeft then
+            patrolMode = "none"
+            currentWaypoint = 1
+            waitingForCountdownLeft = false
+            leftBtn.Text = "AutoLeft"
+            TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(45, 45, 45)}):Play()
+            rightBtn.Text = "AutoRight"
+            TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(45, 45, 45)}):Play()
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, char.HumanoidRootPart.AssemblyLinearVelocity.Y, 0)
+            end
+        else
+            local success, label = pcall(function()
+                return player.PlayerGui:FindFirstChild("DuelsMachineTopFrame") and player.PlayerGui.DuelsMachineTopFrame:FindFirstChild("DuelsMachineTopFrame") and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame:FindFirstChild("Timer") and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame.Timer:FindFirstChild("Label")
+            end)
+            if success and label and isTimerInCountdown(label) then
+                waitingForCountdownLeft = true
+                leftBtn.Text = "Waiting..."
+                TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(255, 200, 50)}):Play()
+            else
+                startMovement("left")
+            end
+        end
+    end)
+
+    floatBtn.MouseButton1Click:Connect(function()
+        floating = not floating
+        if floating then
+            floatBtn.Text = "Float ON"
+            floatBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+        else
+            floatBtn.Text = "Float OFF"
+            floatBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                char.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(char.HumanoidRootPart.AssemblyLinearVelocity.X, 0, char.HumanoidRootPart.AssemblyLinearVelocity.Z)
+            end
+        end
+    end)
+
+    heartbeatConn = RunService.Heartbeat:Connect(updateWalking)
+
+    sg.Destroying:Connect(function()
+        if heartbeatConn then heartbeatConn:Disconnect() end
+        autoDuelGui = nil
+    end)
+
+    player.CharacterAdded:Connect(function()
+        task.wait(1)
+        patrolMode = "none"
+        currentWaypoint = 1
+        waitingForCountdownLeft = false
+        waitingForCountdownRight = false
+        floating = false
+        if rightBtn then rightBtn.Text = "AutoRight" end
+        if leftBtn then leftBtn.Text = "AutoLeft" end
+        if floatBtn then
+            floatBtn.Text = "Float OFF"
+            floatBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+        end
+    end)
+
+    local function onTextChanged(label)
+        local text = label.Text
+        local ok, number = isCountdownNumber(text)
+        if ok and number == 1 then
+            if waitingForCountdownLeft then
+                task.wait(AUTO_START_DELAY)
+                waitingForCountdownLeft = false
+                startMovement("left")
+            end
+            if waitingForCountdownRight then
+                task.wait(AUTO_START_DELAY)
+                waitingForCountdownRight = false
+                startMovement("right")
+            end
+        end
+    end
+
+    task.spawn(function()
+        local success, label = pcall(function()
+            return player.PlayerGui:FindFirstChild("DuelsMachineTopFrame") and player.PlayerGui.DuelsMachineTopFrame:FindFirstChild("DuelsMachineTopFrame") and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame:FindFirstChild("Timer") and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame.Timer:FindFirstChild("Label")
+        end)
+        if success and label then
+            onTextChanged(label)
+            label:GetPropertyChangedSignal("Text"):Connect(function()
+                onTextChanged(label)
+            end)
+        end
+    end)
+end
+
+-- ============ DRAGGABLE BUTTON ============
+local function createDraggableButton(name, text, color, yPos)
+    local gui = Instance.new("ScreenGui")
+    gui.Name = name .. "Btn"
+    gui.Parent = player.PlayerGui
+    gui.ResetOnSpawn = false
+    
+    local btn = Instance.new("TextButton")
+    btn.Parent = gui
+    btn.Size = UDim2.new(0, 120, 0, 35)
+    btn.Position = UDim2.new(0.02, 0, yPos, 0)
+    btn.BackgroundColor3 = color
+    btn.BackgroundTransparency = 0.15
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 11
     
     local corner = Instance.new("UICorner")
-    corner.Parent = button
-    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = btn
+    corner.CornerRadius = UDim.new(0, 8)
     
-    local uiStroke = Instance.new("UIStroke")
-    uiStroke.Parent = button
-    uiStroke.Thickness = 1
-    uiStroke.Color = Color3.fromRGB(0, 150, 255)
-    uiStroke.Transparency = 0.5
-    
+    -- Drag handle
     local dragHandle = Instance.new("Frame")
-    dragHandle.Parent = button
+    dragHandle.Parent = btn
     dragHandle.Size = UDim2.new(1, 0, 0, 12)
     dragHandle.Position = UDim2.new(0, 0, 0, 0)
-    dragHandle.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
-    dragHandle.BackgroundTransparency = 0.5
+    dragHandle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    dragHandle.BackgroundTransparency = 0.7
     dragHandle.BorderSizePixel = 0
     
-    local handleCorner = Instance.new("UICorner")
-    handleCorner.Parent = dragHandle
-    handleCorner.CornerRadius = UDim.new(0, 10)
+    local dragCorner = Instance.new("UICorner")
+    dragCorner.Parent = dragHandle
+    dragCorner.CornerRadius = UDim.new(0, 8)
     
     local dots = Instance.new("TextLabel")
     dots.Parent = dragHandle
     dots.Size = UDim2.new(1, 0, 1, 0)
     dots.BackgroundTransparency = 1
-    dots.Font = Enum.Font.GothamBold
-    dots.Text = "⋮⋮"
+    dots.Text = "...."
     dots.TextColor3 = Color3.fromRGB(255, 255, 255)
-    dots.TextSize = 10
+    dots.TextSize = 8
     
+    -- Dragging logic
     local dragging = false
-    local dragStart
-    local startPosUI
+    local dragStart, startPos
     
-    button.InputBegan:Connect(function(input)
+    btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
             local pos = input.Position
-            local absPos = button.AbsolutePosition
-            if pos.Y - absPos.Y < 20 then
+            if pos.Y - btn.AbsolutePosition.Y < 20 then
                 dragging = true
                 dragStart = input.Position
-                startPosUI = button.Position
+                startPos = btn.Position
                 input.Changed:Connect(function()
                     if input.UserInputState == Enum.UserInputState.End then
                         dragging = false
@@ -249,148 +640,68 @@ local function createMoveableButton(name, text, startPos)
     
     UserInputService.InputChanged:Connect(function(input)
         if dragging then
-            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
-                local delta = input.Position - dragStart
-                button.Position = UDim2.new(startPosUI.X.Scale, startPosUI.X.Offset + delta.X, startPosUI.Y.Scale, startPosUI.Y.Offset + delta.Y)
-            end
+            local delta = input.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
     end)
     
-    return button
+    return btn
 end
 
--- ============ CREATE 4 BUTTONS WITH PROPER SPACING ============
--- Each button has its own ScreenGui so they don't overlap
+-- ============ CREATE 5 BUTTONS (Properly Spaced) ============
+-- Y positions: 0.08, 0.18, 0.28, 0.38, 0.48
+local infJumpBtn = createDraggableButton("InfJump", "INF JUMP", Color3.fromRGB(100, 100, 200), 0.08)
+local carrySpeedBtn = createDraggableButton("CarrySpeed", "CARRY SPEED", Color3.fromRGB(200, 100, 50), 0.18)
+local dropBtn = createDraggableButton("Drop", "DROP", Color3.fromRGB(200, 50, 50), 0.28)
+local tpBtn = createDraggableButton("TPDown", "TP DOWN", Color3.fromRGB(50, 150, 50), 0.38)
+local autoDuelBtn = createDraggableButton("AutoDuel", "AUTO DUEL", Color3.fromRGB(100, 100, 200), 0.48)
 
--- Button 1: INFINITE JUMP (Y = 0.10)
-local JumpBtn = createMoveableButton("InfiniteJump", "🦘 INF JUMP", UDim2.new(0.02, 0, 0.10, 0))
-
--- Button 2: CARRY SPEED (Y = 0.22)
-local CarrySpeedBtn = createMoveableButton("CarrySpeed", "⚡ CARRY SPEED", UDim2.new(0.02, 0, 0.22, 0))
-
--- Button 3: DROP (Y = 0.34)
-local DropBtn = createMoveableButton("Drop", "💥 DROP", UDim2.new(0.02, 0, 0.34, 0))
-
--- Button 4: TP DOWN (Y = 0.46)
-local TPBtn = createMoveableButton("TPDown", "⬇️ TP DOWN", UDim2.new(0.02, 0, 0.46, 0))
-
--- ============ BUTTON FUNCTIONS ============
-
-JumpBtn.MouseButton1Click:Connect(function()
-    local result = toggleInfiniteJump()
-    if result == "ON" then
-        JumpBtn.Text = "✓ INF ON"
-        JumpBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        JumpBtn.BackgroundTransparency = 0.3
-        task.delay(1.2, function()
-            JumpBtn.Text = "🦘 INF JUMP"
-            JumpBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
-            JumpBtn.BackgroundTransparency = 0.35
-        end)
-    else
-        JumpBtn.Text = "✗ INF OFF"
-        JumpBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
-        JumpBtn.BackgroundTransparency = 0.3
-        task.delay(1.2, function()
-            JumpBtn.Text = "🦘 INF JUMP"
-            JumpBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
-            JumpBtn.BackgroundTransparency = 0.35
-        end)
-    end
-end)
-
-CarrySpeedBtn.MouseButton1Click:Connect(function()
-    local result = setCarrySpeed()
-    if result == "carry" then
-        CarrySpeedBtn.Text = "✓ 29.4"
-        CarrySpeedBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        CarrySpeedBtn.BackgroundTransparency = 0.3
-        task.delay(1.2, function()
-            CarrySpeedBtn.Text = "⚡ CARRY SPEED"
-            CarrySpeedBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
-            CarrySpeedBtn.BackgroundTransparency = 0.35
-        end)
-    elseif result == "reset" then
-        CarrySpeedBtn.Text = "✓ RESET"
-        CarrySpeedBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        CarrySpeedBtn.BackgroundTransparency = 0.3
-        task.delay(1.2, function()
-            CarrySpeedBtn.Text = "⚡ CARRY SPEED"
-            CarrySpeedBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
-            CarrySpeedBtn.BackgroundTransparency = 0.35
-        end)
-    end
-end)
-
-DropBtn.MouseButton1Click:Connect(function()
-    if not dropEnabled then
-        dropEnabled = true
-        toggleDrop(true)
-        DropBtn.Text = "💢 ACTIVE!"
-        DropBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
-        DropBtn.BackgroundTransparency = 0.3
-        
-        task.delay(5, function()
-            dropEnabled = false
-            toggleDrop(false)
-            DropBtn.Text = "💥 DROP"
-            DropBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
-            DropBtn.BackgroundTransparency = 0.35
-        end)
-    end
-end)
-
-TPBtn.MouseButton1Click:Connect(function()
-    if dropEnabled then
-        dropEnabled = false
-        toggleDrop(false)
-        DropBtn.Text = "💥 DROP"
-        DropBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
-        DropBtn.BackgroundTransparency = 0.35
-    end
-    
-    TPBtn.Text = "⬇️ GOING"
-    TPBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-    TPBtn.BackgroundTransparency = 0.3
-    
-    teleportToGround()
-    
+-- ============ BUTTON CLICKS ============
+infJumpBtn.MouseButton1Click:Connect(function()
+    local on = toggleInfiniteJump()
+    infJumpBtn.Text = on and "INF ON" or "INF OFF"
+    infJumpBtn.BackgroundColor3 = on and Color3.fromRGB(76, 175, 80) or Color3.fromRGB(200, 80, 80)
     task.delay(1.2, function()
-        TPBtn.Text = "⬇️ TP DOWN"
-        TPBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
-        TPBtn.BackgroundTransparency = 0.35
+        infJumpBtn.Text = "INF JUMP"
+        infJumpBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 200)
     end)
 end)
 
--- Handle character respawn
-player.CharacterAdded:Connect(function(character)
-    task.wait(0.5)
-    local humanoid = character:FindFirstChild("Humanoid")
-    if humanoid then
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-        humanoid.BreakJointsOnDeath = false
-        
-        if speedModified then
-            task.wait(0.2)
-            humanoid.WalkSpeed = 29.4
-        end
-    end
-    
-    if dropEnabled then
-        dropEnabled = false
-        if DropBtn then
-            DropBtn.Text = "💥 DROP"
-            DropBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
-            DropBtn.BackgroundTransparency = 0.35
-        end
+carrySpeedBtn.MouseButton1Click:Connect(function()
+    setCarrySpeed()
+    carrySpeedBtn.Text = speedModified and "29.4" or "RESET"
+    carrySpeedBtn.BackgroundColor3 = Color3.fromRGB(76, 175, 80)
+    task.delay(1.2, function()
+        carrySpeedBtn.Text = "CARRY SPEED"
+        carrySpeedBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 50)
+    end)
+end)
+
+dropBtn.MouseButton1Click:Connect(function()
+    if not dropEnabled then
+        toggleDrop()
+        dropBtn.Text = "ACTIVE"
+        dropBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+        task.delay(5, function()
+            dropEnabled = false
+            dropBtn.Text = "DROP"
+            dropBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        end)
     end
 end)
 
-print("✅ All 4 Buttons Loaded!")
-print("- 🦘 INF JUMP (Top left)")
-print("- ⚡ CARRY SPEED (Below INF JUMP)")
-print("- 💥 DROP (Below CARRY SPEED)")
-print("- ⬇️ TP DOWN (Bottom)")
-print("- 🛡️ Anti-Ragdoll: ON")
+tpBtn.MouseButton1Click:Connect(function()
+    tpBtn.Text = "GOING"
+    tpBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+    teleportToGround()
+    task.delay(1.2, function()
+        tpBtn.Text = "TP DOWN"
+        tpBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+    end)
+end)
+
+autoDuelBtn.MouseButton1Click:Connect(function()
+    createAutoDuelGUI()
+end)
+
+print("MLZ DUELS Loaded - 5 Buttons: INF JUMP, CARRY SPEED, DROP, TP DOWN, AUTO DUEL")
