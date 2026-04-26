@@ -1,4 +1,4 @@
--- COMPLETE SCRIPT - Slow Down, DROP, and TP DOWN
+-- COMPLETE SCRIPT - All 4 Buttons Visible + Anti-Ragdoll
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -8,273 +8,389 @@ local player = Players.LocalPlayer
 local originalSpeed = 16
 local speedModified = false
 local dropEnabled = false
-local _wfConns = {}
+local infinityJumpEnabled = true
+local antiRagdollEnabled = true
+local jumpForce = 50
+local clampFallSpeed = 80
 
--- ============ SLOW DOWN FUNCTION (Speed = 29.3) ============
-local function setSlowDown()
+-- ============ ANTI-RAGDOLL FUNCTION ============
+local function fixRagdoll()
     local character = player.Character
-    local humanoid = character and character:FindFirstChild("Humanoid")
+    if not character then return end
     
-    if humanoid then
-        if not speedModified then
-            if originalSpeed == 16 then
-                originalSpeed = humanoid.WalkSpeed
-            end
-            humanoid.WalkSpeed = 29.3
-            speedModified = true
-            print("Speed set to 29.3")
-            return "slowed"
-        else
-            humanoid.WalkSpeed = originalSpeed
-            speedModified = false
-            print("Speed reset to " .. originalSpeed)
-            return "reset"
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid then return end
+    
+    local currentState = humanoid:GetState()
+    
+    local badStates = {
+        Enum.HumanoidStateType.Ragdoll,
+        Enum.HumanoidStateType.FallingDown,
+        Enum.HumanoidStateType.GettingUp,
+        Enum.HumanoidStateType.Stunned,
+        Enum.HumanoidStateType.Physics,
+        Enum.HumanoidStateType.Seated,
+    }
+    
+    for _, state in ipairs(badStates) do
+        if currentState == state then
+            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            humanoid.AutoRotate = true
+            humanoid.PlatformStand = false
+            humanoid.Sit = false
+            break
         end
     end
-    return "error"
 end
 
--- ============ DROP/FLING FUNCTION ============
+local function fixPhysics()
+    local character = player.Character
+    if not character then return end
+    
+    local humanoidRoot = character:FindFirstChild("HumanoidRootPart")
+    if humanoidRoot then
+        if humanoidRoot.Velocity.Y < -50 then
+            humanoidRoot.Velocity = Vector3.new(humanoidRoot.Velocity.X, -30, humanoidRoot.Velocity.Z)
+        end
+    end
+end
+
+-- ============ INFINITE JUMP ============
+RunService.Heartbeat:Connect(function()
+    if not infinityJumpEnabled then return end
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp and hrp.Velocity.Y < -clampFallSpeed then
+        hrp.Velocity = Vector3.new(hrp.Velocity.X, -clampFallSpeed, hrp.Velocity.Z)
+    end
+end)
+
+UserInputService.JumpRequest:Connect(function()
+    if not infinityJumpEnabled then return end
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.Velocity = Vector3.new(hrp.Velocity.X, jumpForce, hrp.Velocity.Z)
+    end
+end)
+
+local function toggleInfiniteJump()
+    infinityJumpEnabled = not infinityJumpEnabled
+    return infinityJumpEnabled and "ON" or "OFF"
+end
+
+-- ============ NO FALL DAMAGE ============
+local function enableNoFallDamage()
+    player.CharacterAdded:Connect(function(character)
+        task.wait(0.5)
+        local humanoid = character:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            humanoid.BreakJointsOnDeath = false
+        end
+    end)
+    local character = player.Character
+    if character then
+        local humanoid = character:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            humanoid.BreakJointsOnDeath = false
+        end
+    end
+end
+enableNoFallDamage()
+
+-- ============ CARRY SPEED FUNCTION ============
+local function setCarrySpeed()
+    local character = player.Character
+    if not character then return "error" end
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid then return "error" end
+    
+    if not speedModified then
+        originalSpeed = humanoid.WalkSpeed
+        humanoid.WalkSpeed = 29.4
+        speedModified = true
+        return "carry"
+    else
+        humanoid.WalkSpeed = originalSpeed
+        speedModified = false
+        return "reset"
+    end
+end
+
+-- ============ DROP/FLING ============
 local function toggleDrop(state)
     dropEnabled = state
-    
     if dropEnabled then
-        local colConn = RunService.Stepped:Connect(function()
-            if not dropEnabled then return end
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= player and p.Character then
-                    for _, part in ipairs(p.Character:GetChildren()) do
-                        if part:IsA("BasePart") then 
-                            part.CanCollide = false 
-                        end
-                    end
-                end
-            end
-        end)
-        table.insert(_wfConns, colConn)
-        
         task.spawn(function()
             while dropEnabled do
                 RunService.Heartbeat:Wait()
                 local c = player.Character
                 local root = c and c:FindFirstChild("HumanoidRootPart")
-                
                 if not root then continue end
-                
                 local vel = root.Velocity
                 root.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
-                
                 RunService.RenderStepped:Wait()
                 if root and root.Parent then root.Velocity = vel end
-                
                 RunService.Stepped:Wait()
-                if root and root.Parent then 
-                    root.Velocity = vel + Vector3.new(0, 0.1, 0) 
-                end
+                if root and root.Parent then root.Velocity = vel + Vector3.new(0, 0.1, 0) end
             end
         end)
-    else
-        for _, c in ipairs(_wfConns) do
-            if typeof(c) == "RBXScriptConnection" then c:Disconnect() end
-        end
-        _wfConns = {}
     end
 end
 
--- ============ TP DOWN FUNCTION ============
+-- ============ TP DOWN ============
 local function teleportToGround()
     local character = player.Character
     if not character then return false end
-    
     local humanoid = character:FindFirstChild("Humanoid")
     local rootPart = character:FindFirstChild("HumanoidRootPart")
-    
     if not humanoid or not rootPart then return false end
-    
+    if dropEnabled then dropEnabled = false end
     local raycastParams = RaycastParams.new()
     raycastParams.FilterDescendantsInstances = {character}
     raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-    
-    local rayOrigin = rootPart.Position
-    local rayDirection = Vector3.new(0, -500, 0)
-    local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-    
+    local rayResult = workspace:Raycast(rootPart.Position, Vector3.new(0, -500, 0), raycastParams)
     local groundY = rayResult and rayResult.Position.Y or 0
     local teleportPos = Vector3.new(rootPart.Position.X, groundY + 3, rootPart.Position.Z)
-    
     rootPart.CFrame = CFrame.new(teleportPos)
     humanoid.PlatformStand = false
     humanoid.Sit = false
     rootPart.Velocity = Vector3.new(0, 0, 0)
     rootPart.RotVelocity = Vector3.new(0, 0, 0)
-    
-    task.wait(0.1)
-    
-    if character.PrimaryPart then
-        character:SetPrimaryPartCFrame(CFrame.new(teleportPos))
-    end
-    
+    humanoid.Health = humanoid.MaxHealth
     return true
 end
 
--- ============ CREATE ALL BUTTONS ============
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "UtilityGUI"
-ScreenGui.Parent = player.PlayerGui
-ScreenGui.ResetOnSpawn = false
-
--- Button Container
-local Container = Instance.new("Frame")
-Container.Parent = ScreenGui
-Container.BackgroundTransparency = 1
-Container.Position = UDim2.new(0.02, 0, 0.3, 0)
-Container.Size = UDim2.new(0, 150, 0, 170)
-Container.Active = true
-Container.Draggable = true
-
--- Slow Down Button
-local SlowDownButton = Instance.new("TextButton")
-SlowDownButton.Parent = Container
-SlowDownButton.Size = UDim2.new(0, 140, 0, 45)
-SlowDownButton.Position = UDim2.new(0, 5, 0, 5)
-SlowDownButton.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
-SlowDownButton.Font = Enum.Font.GothamBold
-SlowDownButton.Text = "🐢 SLOW DOWN"
-SlowDownButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-SlowDownButton.TextSize = 14
-
-local SlowCorner = Instance.new("UICorner")
-SlowCorner.Parent = SlowDownButton
-SlowCorner.CornerRadius = UDim.new(0, 8)
-
--- DROP Button
-local DropButton = Instance.new("TextButton")
-DropButton.Parent = Container
-DropButton.Size = UDim2.new(0, 140, 0, 45)
-DropButton.Position = UDim2.new(0, 5, 0, 55)
-DropButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
-DropButton.Font = Enum.Font.GothamBold
-DropButton.Text = "💥 DROP"
-DropButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-DropButton.TextSize = 16
-
-local DropCorner = Instance.new("UICorner")
-DropCorner.Parent = DropButton
-DropCorner.CornerRadius = UDim.new(0, 8)
-
--- TP Down Button
-local TPDownButton = Instance.new("TextButton")
-TPDownButton.Parent = Container
-TPDownButton.Size = UDim2.new(0, 140, 0, 45)
-TPDownButton.Position = UDim2.new(0, 5, 0, 105)
-TPDownButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
-TPDownButton.Font = Enum.Font.GothamBold
-TPDownButton.Text = "⬇️ TP DOWN"
-TPDownButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-TPDownButton.TextSize = 14
-
-local TPCorner = Instance.new("UICorner")
-TPCorner.Parent = TPDownButton
-TPCorner.CornerRadius = UDim.new(0, 8)
-
--- Status Label
-local Status = Instance.new("TextLabel")
-Status.Parent = Container
-Status.Size = UDim2.new(0, 140, 0, 20)
-Status.Position = UDim2.new(0, 5, 0, 155)
-Status.BackgroundTransparency = 1
-Status.Font = Enum.Font.Gotham
-Status.Text = "Ready"
-Status.TextColor3 = Color3.fromRGB(150, 255, 150)
-Status.TextSize = 10
-
--- ============ BUTTON FUNCTIONS ============
-
--- Slow Down Button
-SlowDownButton.MouseButton1Click:Connect(function()
-    local result = setSlowDown()
-    
-    if result == "slowed" then
-        SlowDownButton.Text = "✓ 29.3"
-        SlowDownButton.BackgroundColor3 = Color3.fromRGB(41, 128, 185)
-        Status.Text = "Speed: 29.3"
-        Status.TextColor3 = Color3.fromRGB(255, 200, 100)
-        
-        task.delay(1.5, function()
-            if SlowDownButton then
-                SlowDownButton.Text = "🐢 SLOW DOWN"
-                SlowDownButton.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
-            end
-        end)
-    elseif result == "reset" then
-        SlowDownButton.Text = "✓ RESET"
-        SlowDownButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
-        Status.Text = "Speed: " .. originalSpeed
-        Status.TextColor3 = Color3.fromRGB(150, 255, 150)
-        
-        task.delay(1.5, function()
-            if SlowDownButton then
-                SlowDownButton.Text = "🐢 SLOW DOWN"
-                SlowDownButton.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
-            end
-        end)
+-- ============ ANTI-RAGDOLL MAIN LOOP ============
+RunService.Heartbeat:Connect(function()
+    if antiRagdollEnabled then
+        fixRagdoll()
+        fixPhysics()
     end
 end)
 
--- DROP Button
-DropButton.MouseButton1Click:Connect(function()
-    if not dropEnabled then
-        toggleDrop(true)
-        DropButton.Text = "💢 ACTIVE!"
-        DropButton.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
-        Status.Text = "FLING ACTIVE (5 sec)"
-        Status.TextColor3 = Color3.fromRGB(255, 100, 100)
-        
-        task.delay(5, function()
-            toggleDrop(false)
-            DropButton.Text = "💥 DROP"
-            DropButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
-            Status.Text = "Ready"
-            Status.TextColor3 = Color3.fromRGB(150, 255, 150)
-        end)
-    end
-end)
-
--- TP Down Button
-TPDownButton.MouseButton1Click:Connect(function()
-    if dropEnabled then
-        toggleDrop(false)
-        DropButton.Text = "💥 DROP"
-        DropButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
-    end
+-- ============ CREATE MOVEABLE BUTTON ============
+local function createMoveableButton(name, text, startPos)
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = name .. "Button"
+    ScreenGui.Parent = player.PlayerGui
+    ScreenGui.ResetOnSpawn = false
     
-    TPDownButton.Text = "⬇️ GOING DOWN"
-    TPDownButton.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
-    Status.Text = "Teleporting to ground..."
+    local button = Instance.new("TextButton")
+    button.Parent = ScreenGui
+    button.Size = UDim2.new(0, 130, 0, 40)
+    button.Position = startPos
+    button.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+    button.BackgroundTransparency = 0.35
+    button.Text = text
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 12
+    button.AutoButtonColor = true
+    button.BorderSizePixel = 0
     
-    local success = teleportToGround()
+    local corner = Instance.new("UICorner")
+    corner.Parent = button
+    corner.CornerRadius = UDim.new(0, 10)
     
-    if success then
-        Status.Text = "Landed on feet!"
-        Status.TextColor3 = Color3.fromRGB(100, 255, 150)
-    else
-        Status.Text = "Teleport failed!"
-        Status.TextColor3 = Color3.fromRGB(255, 100, 100)
-    end
+    local uiStroke = Instance.new("UIStroke")
+    uiStroke.Parent = button
+    uiStroke.Thickness = 1
+    uiStroke.Color = Color3.fromRGB(0, 150, 255)
+    uiStroke.Transparency = 0.5
     
-    task.delay(1.5, function()
-        if TPDownButton then
-            TPDownButton.Text = "⬇️ TP DOWN"
-            TPDownButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
-            if not dropEnabled then
-                Status.Text = "Ready"
-                Status.TextColor3 = Color3.fromRGB(150, 255, 150)
+    local dragHandle = Instance.new("Frame")
+    dragHandle.Parent = button
+    dragHandle.Size = UDim2.new(1, 0, 0, 12)
+    dragHandle.Position = UDim2.new(0, 0, 0, 0)
+    dragHandle.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    dragHandle.BackgroundTransparency = 0.5
+    dragHandle.BorderSizePixel = 0
+    
+    local handleCorner = Instance.new("UICorner")
+    handleCorner.Parent = dragHandle
+    handleCorner.CornerRadius = UDim.new(0, 10)
+    
+    local dots = Instance.new("TextLabel")
+    dots.Parent = dragHandle
+    dots.Size = UDim2.new(1, 0, 1, 0)
+    dots.BackgroundTransparency = 1
+    dots.Font = Enum.Font.GothamBold
+    dots.Text = "⋮⋮"
+    dots.TextColor3 = Color3.fromRGB(255, 255, 255)
+    dots.TextSize = 10
+    
+    local dragging = false
+    local dragStart
+    local startPosUI
+    
+    button.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local pos = input.Position
+            local absPos = button.AbsolutePosition
+            if pos.Y - absPos.Y < 20 then
+                dragging = true
+                dragStart = input.Position
+                startPosUI = button.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
             end
         end
     end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging then
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = input.Position - dragStart
+                button.Position = UDim2.new(startPosUI.X.Scale, startPosUI.X.Offset + delta.X, startPosUI.Y.Scale, startPosUI.Y.Offset + delta.Y)
+            end
+        end
+    end)
+    
+    return button
+end
+
+-- ============ CREATE 4 BUTTONS WITH PROPER SPACING ============
+-- Each button has its own ScreenGui so they don't overlap
+
+-- Button 1: INFINITE JUMP (Y = 0.10)
+local JumpBtn = createMoveableButton("InfiniteJump", "🦘 INF JUMP", UDim2.new(0.02, 0, 0.10, 0))
+
+-- Button 2: CARRY SPEED (Y = 0.22)
+local CarrySpeedBtn = createMoveableButton("CarrySpeed", "⚡ CARRY SPEED", UDim2.new(0.02, 0, 0.22, 0))
+
+-- Button 3: DROP (Y = 0.34)
+local DropBtn = createMoveableButton("Drop", "💥 DROP", UDim2.new(0.02, 0, 0.34, 0))
+
+-- Button 4: TP DOWN (Y = 0.46)
+local TPBtn = createMoveableButton("TPDown", "⬇️ TP DOWN", UDim2.new(0.02, 0, 0.46, 0))
+
+-- ============ BUTTON FUNCTIONS ============
+
+JumpBtn.MouseButton1Click:Connect(function()
+    local result = toggleInfiniteJump()
+    if result == "ON" then
+        JumpBtn.Text = "✓ INF ON"
+        JumpBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        JumpBtn.BackgroundTransparency = 0.3
+        task.delay(1.2, function()
+            JumpBtn.Text = "🦘 INF JUMP"
+            JumpBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+            JumpBtn.BackgroundTransparency = 0.35
+        end)
+    else
+        JumpBtn.Text = "✗ INF OFF"
+        JumpBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        JumpBtn.BackgroundTransparency = 0.3
+        task.delay(1.2, function()
+            JumpBtn.Text = "🦘 INF JUMP"
+            JumpBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+            JumpBtn.BackgroundTransparency = 0.35
+        end)
+    end
 end)
 
-print("✅ All 3 buttons loaded!")
-print("- 🐢 SLOW DOWN: Sets speed to 29.3")
-print("- 💥 DROP: Activates fling for 5 seconds")
-print("- ⬇️ TP DOWN: Teleports you to ground, landing on feet")
+CarrySpeedBtn.MouseButton1Click:Connect(function()
+    local result = setCarrySpeed()
+    if result == "carry" then
+        CarrySpeedBtn.Text = "✓ 29.4"
+        CarrySpeedBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        CarrySpeedBtn.BackgroundTransparency = 0.3
+        task.delay(1.2, function()
+            CarrySpeedBtn.Text = "⚡ CARRY SPEED"
+            CarrySpeedBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+            CarrySpeedBtn.BackgroundTransparency = 0.35
+        end)
+    elseif result == "reset" then
+        CarrySpeedBtn.Text = "✓ RESET"
+        CarrySpeedBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        CarrySpeedBtn.BackgroundTransparency = 0.3
+        task.delay(1.2, function()
+            CarrySpeedBtn.Text = "⚡ CARRY SPEED"
+            CarrySpeedBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+            CarrySpeedBtn.BackgroundTransparency = 0.35
+        end)
+    end
+end)
+
+DropBtn.MouseButton1Click:Connect(function()
+    if not dropEnabled then
+        dropEnabled = true
+        toggleDrop(true)
+        DropBtn.Text = "💢 ACTIVE!"
+        DropBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        DropBtn.BackgroundTransparency = 0.3
+        
+        task.delay(5, function()
+            dropEnabled = false
+            toggleDrop(false)
+            DropBtn.Text = "💥 DROP"
+            DropBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+            DropBtn.BackgroundTransparency = 0.35
+        end)
+    end
+end)
+
+TPBtn.MouseButton1Click:Connect(function()
+    if dropEnabled then
+        dropEnabled = false
+        toggleDrop(false)
+        DropBtn.Text = "💥 DROP"
+        DropBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+        DropBtn.BackgroundTransparency = 0.35
+    end
+    
+    TPBtn.Text = "⬇️ GOING"
+    TPBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+    TPBtn.BackgroundTransparency = 0.3
+    
+    teleportToGround()
+    
+    task.delay(1.2, function()
+        TPBtn.Text = "⬇️ TP DOWN"
+        TPBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+        TPBtn.BackgroundTransparency = 0.35
+    end)
+end)
+
+-- Handle character respawn
+player.CharacterAdded:Connect(function(character)
+    task.wait(0.5)
+    local humanoid = character:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        humanoid.BreakJointsOnDeath = false
+        
+        if speedModified then
+            task.wait(0.2)
+            humanoid.WalkSpeed = 29.4
+        end
+    end
+    
+    if dropEnabled then
+        dropEnabled = false
+        if DropBtn then
+            DropBtn.Text = "💥 DROP"
+            DropBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+            DropBtn.BackgroundTransparency = 0.35
+        end
+    end
+end)
+
+print("✅ All 4 Buttons Loaded!")
+print("- 🦘 INF JUMP (Top left)")
+print("- ⚡ CARRY SPEED (Below INF JUMP)")
+print("- 💥 DROP (Below CARRY SPEED)")
+print("- ⬇️ TP DOWN (Bottom)")
+print("- 🛡️ Anti-Ragdoll: ON")
