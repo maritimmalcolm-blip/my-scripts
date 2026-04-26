@@ -1,0 +1,282 @@
+-- KEY SYSTEM - Remembers your key forever
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- VALID KEYS (from your Pastebin)
+local validKeys = {
+    ["DROP-F9X2K-7M4NQ"] = true,
+    ["DROP-R3T8Y-2W6LP"] = true,
+    ["DROP-K5Z9V-1C7XJ"] = true,
+    ["DROP-G4H7M-8B2VN"] = true,
+    ["DROP-J3S6Q-5D8PT"] = true,
+    ["DROP-L2X9W-4F6HR"] = true,
+    ["DROP-Z7V1C-9M3KB"] = true,
+    ["DROP-Y8N4P-2R6TW"] = true,
+}
+
+-- Function to save key to their computer (stays forever)
+local function saveKey(key)
+    -- Saves to their Roblox account's settings
+    pcall(function()
+        player:SetAttribute("SavedKey", key)
+    end)
+end
+
+-- Function to load saved key
+local function loadSavedKey()
+    local saved = player:GetAttribute("SavedKey")
+    if saved and saved ~= "" then
+        return saved
+    end
+    return nil
+end
+
+-- Function to clear saved key (optional, for debugging)
+local function clearSavedKey()
+    player:SetAttribute("SavedKey", nil)
+end
+
+-- FLING SCRIPT (loads when key is valid)
+local function loadFlingScript(savedKey)
+    print("🎉 FLING SCRIPT LOADED!")
+    print("Using key: " .. savedKey)
+    
+    local RunService = game:GetService("RunService")
+    local dropEnabled = false
+    local _wfConns = {}
+    
+    local function toggleDrop(state)
+        dropEnabled = state
+        
+        if dropEnabled then
+            local colConn = RunService.Stepped:Connect(function()
+                if not dropEnabled then return end
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= player and p.Character then
+                        for _, part in ipairs(p.Character:GetChildren()) do
+                            if part:IsA("BasePart") then 
+                                part.CanCollide = false 
+                            end
+                        end
+                    end
+                end
+            end)
+            table.insert(_wfConns, colConn)
+            
+            task.spawn(function()
+                while dropEnabled do
+                    RunService.Heartbeat:Wait()
+                    local c = player.Character
+                    local root = c and c:FindFirstChild("HumanoidRootPart")
+                    
+                    if not root then continue end
+                    
+                    local vel = root.Velocity
+                    root.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
+                    
+                    RunService.RenderStepped:Wait()
+                    if root and root.Parent then root.Velocity = vel end
+                    
+                    RunService.Stepped:Wait()
+                    if root and root.Parent then 
+                        root.Velocity = vel + Vector3.new(0, 0.1, 0) 
+                    end
+                end
+            end)
+        else
+            for _, c in ipairs(_wfConns) do
+                if typeof(c) == "RBXScriptConnection" then c:Disconnect() end
+            end
+            _wfConns = {}
+        end
+    end
+    
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Parent = player.PlayerGui
+    ScreenGui.Name = "FlingGUI"
+    
+    local DropButton = Instance.new("TextButton")
+    DropButton.Parent = ScreenGui
+    DropButton.Size = UDim2.new(0, 150, 0, 50)
+    DropButton.Position = UDim2.new(0.5, -75, 0.5, -25)
+    DropButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    DropButton.Text = "DROP"
+    DropButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    DropButton.Font = Enum.Font.GothamBold
+    DropButton.TextSize = 18
+    
+    local Corner = Instance.new("UICorner")
+    Corner.Parent = DropButton
+    Corner.CornerRadius = UDim.new(0, 10)
+    
+    DropButton.MouseButton1Click:Connect(function()
+        if not dropEnabled then
+            toggleDrop(true)
+            DropButton.Text = "ACTIVE!"
+            DropButton.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
+            
+            task.delay(5, function()
+                toggleDrop(false)
+                DropButton.Text = "DROP"
+                DropButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+            end)
+        end
+    end)
+    
+    -- Make button draggable
+    local dragging = false
+    local dragStart, startPos
+    
+    DropButton.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = DropButton.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            DropButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    print("✅ DROP button ready!")
+end
+
+-- KEY ENTRY GUI (only shows if no saved key)
+local function createKeyGUI()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "KeyEntry"
+    ScreenGui.Parent = player.PlayerGui
+    
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Parent = ScreenGui
+    MainFrame.BackgroundColor3 = Color3.fromRGB(25, 55, 109)
+    MainFrame.Size = UDim2.new(0, 400, 0, 300)
+    MainFrame.Position = UDim2.new(0.5, -200, 0.5, -150)
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    
+    local FrameCorner = Instance.new("UICorner")
+    FrameCorner.Parent = MainFrame
+    FrameCorner.CornerRadius = UDim.new(0, 12)
+    
+    local Title = Instance.new("TextLabel")
+    Title.Parent = MainFrame
+    Title.Size = UDim2.new(1, 0, 0, 60)
+    Title.BackgroundColor3 = Color3.fromRGB(30, 40, 80)
+    Title.Font = Enum.Font.GothamBold
+    Title.Text = "🔑 ENTER YOUR KEY"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.TextSize = 20
+    
+    local Info = Instance.new("TextLabel")
+    Info.Parent = MainFrame
+    Info.Position = UDim2.new(0, 0, 0, 65)
+    Info.Size = UDim2.new(1, 0, 0, 25)
+    Info.BackgroundTransparency = 1
+    Info.Font = Enum.Font.Gotham
+    Info.Text = "You only need to enter this once!"
+    Info.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Info.TextSize = 11
+    
+    local KeyInput = Instance.new("TextBox")
+    KeyInput.Parent = MainFrame
+    KeyInput.Position = UDim2.new(0.1, 0, 0.35, 0)
+    KeyInput.Size = UDim2.new(0.8, 0, 0, 50)
+    KeyInput.BackgroundColor3 = Color3.fromRGB(40, 50, 80)
+    KeyInput.Font = Enum.Font.Gotham
+    KeyInput.PlaceholderText = "Enter your key"
+    KeyInput.Text = ""
+    KeyInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+    KeyInput.TextSize = 14
+    
+    local InputCorner = Instance.new("UICorner")
+    InputCorner.Parent = KeyInput
+    InputCorner.CornerRadius = UDim.new(0, 8)
+    
+    local ActivateBtn = Instance.new("TextButton")
+    ActivateBtn.Parent = MainFrame
+    ActivateBtn.Position = UDim2.new(0.3, 0, 0.6, 0)
+    ActivateBtn.Size = UDim2.new(0.4, 0, 0, 45)
+    ActivateBtn.BackgroundColor3 = Color3.fromRGB(76, 175, 80)
+    ActivateBtn.Font = Enum.Font.GothamBold
+    ActivateBtn.Text = "ACTIVATE"
+    ActivateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ActivateBtn.TextSize = 16
+    
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.Parent = ActivateBtn
+    BtnCorner.CornerRadius = UDim.new(0, 8)
+    
+    local Status = Instance.new("TextLabel")
+    Status.Parent = MainFrame
+    Status.Position = UDim2.new(0, 0, 0.8, 0)
+    Status.Size = UDim2.new(1, 0, 0, 30)
+    Status.BackgroundTransparency = 1
+    Status.Font = Enum.Font.Gotham
+    Status.Text = "Enter your key to activate"
+    Status.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Status.TextSize = 12
+    
+    ActivateBtn.MouseButton1Click:Connect(function()
+        local key = KeyInput.Text
+        
+        if key == "" then
+            Status.Text = "❌ Please enter a key!"
+            Status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+        
+        Status.Text = "⏳ Verifying..."
+        Status.TextColor3 = Color3.fromRGB(255, 200, 100)
+        ActivateBtn.Visible = false
+        
+        task.wait(1)
+        
+        if validKeys[key] then
+            -- Save the key to their computer
+            saveKey(key)
+            
+            Status.Text = "✅ Key saved! You won't need to enter it again."
+            Status.TextColor3 = Color3.fromRGB(100, 255, 100)
+            
+            task.wait(1)
+            ScreenGui:Destroy()
+            loadFlingScript(key)
+        else
+            Status.Text = "❌ Invalid key!"
+            Status.TextColor3 = Color3.fromRGB(255, 100, 100)
+            ActivateBtn.Visible = true
+            
+            task.delay(2, function()
+                Status.Text = "Enter your key to activate"
+                Status.TextColor3 = Color3.fromRGB(200, 200, 200)
+            end)
+        end
+    end)
+end
+
+-- MAIN - Check if key is already saved
+local savedKey = loadSavedKey()
+
+if savedKey and validKeys[savedKey] then
+    -- Key is already saved and valid, load script immediately
+    print("Found saved key! Loading script...")
+    loadFlingScript(savedKey)
+else
+    -- No saved key or key is invalid, show entry GUI
+    if savedKey and not validKeys[savedKey] then
+        print("Saved key is invalid, clearing...")
+        clearSavedKey()
+    end
+    createKeyGUI()
+end
