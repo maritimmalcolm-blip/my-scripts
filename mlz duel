@@ -1,282 +1,280 @@
--- KEY SYSTEM - Remembers your key forever
+-- COMPLETE SCRIPT - Slow Down, DROP, and TP DOWN
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 
--- VALID KEYS (from your Pastebin)
-local validKeys = {
-    ["DROP-F9X2K-7M4NQ"] = true,
-    ["DROP-R3T8Y-2W6LP"] = true,
-    ["DROP-K5Z9V-1C7XJ"] = true,
-    ["DROP-G4H7M-8B2VN"] = true,
-    ["DROP-J3S6Q-5D8PT"] = true,
-    ["DROP-L2X9W-4F6HR"] = true,
-    ["DROP-Z7V1C-9M3KB"] = true,
-    ["DROP-Y8N4P-2R6TW"] = true,
-}
+-- Variables
+local originalSpeed = 16
+local speedModified = false
+local dropEnabled = false
+local _wfConns = {}
 
--- Function to save key to their computer (stays forever)
-local function saveKey(key)
-    -- Saves to their Roblox account's settings
-    pcall(function()
-        player:SetAttribute("SavedKey", key)
-    end)
-end
-
--- Function to load saved key
-local function loadSavedKey()
-    local saved = player:GetAttribute("SavedKey")
-    if saved and saved ~= "" then
-        return saved
+-- ============ SLOW DOWN FUNCTION (Speed = 29.3) ============
+local function setSlowDown()
+    local character = player.Character
+    local humanoid = character and character:FindFirstChild("Humanoid")
+    
+    if humanoid then
+        if not speedModified then
+            if originalSpeed == 16 then
+                originalSpeed = humanoid.WalkSpeed
+            end
+            humanoid.WalkSpeed = 29.3
+            speedModified = true
+            print("Speed set to 29.3")
+            return "slowed"
+        else
+            humanoid.WalkSpeed = originalSpeed
+            speedModified = false
+            print("Speed reset to " .. originalSpeed)
+            return "reset"
+        end
     end
-    return nil
+    return "error"
 end
 
--- Function to clear saved key (optional, for debugging)
-local function clearSavedKey()
-    player:SetAttribute("SavedKey", nil)
-end
-
--- FLING SCRIPT (loads when key is valid)
-local function loadFlingScript(savedKey)
-    print("🎉 FLING SCRIPT LOADED!")
-    print("Using key: " .. savedKey)
+-- ============ DROP/FLING FUNCTION ============
+local function toggleDrop(state)
+    dropEnabled = state
     
-    local RunService = game:GetService("RunService")
-    local dropEnabled = false
-    local _wfConns = {}
-    
-    local function toggleDrop(state)
-        dropEnabled = state
-        
-        if dropEnabled then
-            local colConn = RunService.Stepped:Connect(function()
-                if not dropEnabled then return end
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p ~= player and p.Character then
-                        for _, part in ipairs(p.Character:GetChildren()) do
-                            if part:IsA("BasePart") then 
-                                part.CanCollide = false 
-                            end
+    if dropEnabled then
+        local colConn = RunService.Stepped:Connect(function()
+            if not dropEnabled then return end
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= player and p.Character then
+                    for _, part in ipairs(p.Character:GetChildren()) do
+                        if part:IsA("BasePart") then 
+                            part.CanCollide = false 
                         end
                     end
                 end
-            end)
-            table.insert(_wfConns, colConn)
-            
-            task.spawn(function()
-                while dropEnabled do
-                    RunService.Heartbeat:Wait()
-                    local c = player.Character
-                    local root = c and c:FindFirstChild("HumanoidRootPart")
-                    
-                    if not root then continue end
-                    
-                    local vel = root.Velocity
-                    root.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
-                    
-                    RunService.RenderStepped:Wait()
-                    if root and root.Parent then root.Velocity = vel end
-                    
-                    RunService.Stepped:Wait()
-                    if root and root.Parent then 
-                        root.Velocity = vel + Vector3.new(0, 0.1, 0) 
-                    end
-                end
-            end)
-        else
-            for _, c in ipairs(_wfConns) do
-                if typeof(c) == "RBXScriptConnection" then c:Disconnect() end
             end
-            _wfConns = {}
-        end
-    end
-    
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Parent = player.PlayerGui
-    ScreenGui.Name = "FlingGUI"
-    
-    local DropButton = Instance.new("TextButton")
-    DropButton.Parent = ScreenGui
-    DropButton.Size = UDim2.new(0, 150, 0, 50)
-    DropButton.Position = UDim2.new(0.5, -75, 0.5, -25)
-    DropButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-    DropButton.Text = "DROP"
-    DropButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    DropButton.Font = Enum.Font.GothamBold
-    DropButton.TextSize = 18
-    
-    local Corner = Instance.new("UICorner")
-    Corner.Parent = DropButton
-    Corner.CornerRadius = UDim.new(0, 10)
-    
-    DropButton.MouseButton1Click:Connect(function()
-        if not dropEnabled then
-            toggleDrop(true)
-            DropButton.Text = "ACTIVE!"
-            DropButton.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
-            
-            task.delay(5, function()
-                toggleDrop(false)
-                DropButton.Text = "DROP"
-                DropButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-            end)
-        end
-    end)
-    
-    -- Make button draggable
-    local dragging = false
-    local dragStart, startPos
-    
-    DropButton.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = DropButton.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
+        end)
+        table.insert(_wfConns, colConn)
+        
+        task.spawn(function()
+            while dropEnabled do
+                RunService.Heartbeat:Wait()
+                local c = player.Character
+                local root = c and c:FindFirstChild("HumanoidRootPart")
+                
+                if not root then continue end
+                
+                local vel = root.Velocity
+                root.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
+                
+                RunService.RenderStepped:Wait()
+                if root and root.Parent then root.Velocity = vel end
+                
+                RunService.Stepped:Wait()
+                if root and root.Parent then 
+                    root.Velocity = vel + Vector3.new(0, 0.1, 0) 
                 end
-            end)
+            end
+        end)
+    else
+        for _, c in ipairs(_wfConns) do
+            if typeof(c) == "RBXScriptConnection" then c:Disconnect() end
         end
-    end)
-    
-    game:GetService("UserInputService").InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local delta = input.Position - dragStart
-            DropButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-    
-    print("✅ DROP button ready!")
-end
-
--- KEY ENTRY GUI (only shows if no saved key)
-local function createKeyGUI()
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "KeyEntry"
-    ScreenGui.Parent = player.PlayerGui
-    
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Parent = ScreenGui
-    MainFrame.BackgroundColor3 = Color3.fromRGB(25, 55, 109)
-    MainFrame.Size = UDim2.new(0, 400, 0, 300)
-    MainFrame.Position = UDim2.new(0.5, -200, 0.5, -150)
-    MainFrame.Active = true
-    MainFrame.Draggable = true
-    
-    local FrameCorner = Instance.new("UICorner")
-    FrameCorner.Parent = MainFrame
-    FrameCorner.CornerRadius = UDim.new(0, 12)
-    
-    local Title = Instance.new("TextLabel")
-    Title.Parent = MainFrame
-    Title.Size = UDim2.new(1, 0, 0, 60)
-    Title.BackgroundColor3 = Color3.fromRGB(30, 40, 80)
-    Title.Font = Enum.Font.GothamBold
-    Title.Text = "🔑 ENTER YOUR KEY"
-    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.TextSize = 20
-    
-    local Info = Instance.new("TextLabel")
-    Info.Parent = MainFrame
-    Info.Position = UDim2.new(0, 0, 0, 65)
-    Info.Size = UDim2.new(1, 0, 0, 25)
-    Info.BackgroundTransparency = 1
-    Info.Font = Enum.Font.Gotham
-    Info.Text = "You only need to enter this once!"
-    Info.TextColor3 = Color3.fromRGB(200, 200, 200)
-    Info.TextSize = 11
-    
-    local KeyInput = Instance.new("TextBox")
-    KeyInput.Parent = MainFrame
-    KeyInput.Position = UDim2.new(0.1, 0, 0.35, 0)
-    KeyInput.Size = UDim2.new(0.8, 0, 0, 50)
-    KeyInput.BackgroundColor3 = Color3.fromRGB(40, 50, 80)
-    KeyInput.Font = Enum.Font.Gotham
-    KeyInput.PlaceholderText = "Enter your key"
-    KeyInput.Text = ""
-    KeyInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-    KeyInput.TextSize = 14
-    
-    local InputCorner = Instance.new("UICorner")
-    InputCorner.Parent = KeyInput
-    InputCorner.CornerRadius = UDim.new(0, 8)
-    
-    local ActivateBtn = Instance.new("TextButton")
-    ActivateBtn.Parent = MainFrame
-    ActivateBtn.Position = UDim2.new(0.3, 0, 0.6, 0)
-    ActivateBtn.Size = UDim2.new(0.4, 0, 0, 45)
-    ActivateBtn.BackgroundColor3 = Color3.fromRGB(76, 175, 80)
-    ActivateBtn.Font = Enum.Font.GothamBold
-    ActivateBtn.Text = "ACTIVATE"
-    ActivateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    ActivateBtn.TextSize = 16
-    
-    local BtnCorner = Instance.new("UICorner")
-    BtnCorner.Parent = ActivateBtn
-    BtnCorner.CornerRadius = UDim.new(0, 8)
-    
-    local Status = Instance.new("TextLabel")
-    Status.Parent = MainFrame
-    Status.Position = UDim2.new(0, 0, 0.8, 0)
-    Status.Size = UDim2.new(1, 0, 0, 30)
-    Status.BackgroundTransparency = 1
-    Status.Font = Enum.Font.Gotham
-    Status.Text = "Enter your key to activate"
-    Status.TextColor3 = Color3.fromRGB(200, 200, 200)
-    Status.TextSize = 12
-    
-    ActivateBtn.MouseButton1Click:Connect(function()
-        local key = KeyInput.Text
-        
-        if key == "" then
-            Status.Text = "❌ Please enter a key!"
-            Status.TextColor3 = Color3.fromRGB(255, 100, 100)
-            return
-        end
-        
-        Status.Text = "⏳ Verifying..."
-        Status.TextColor3 = Color3.fromRGB(255, 200, 100)
-        ActivateBtn.Visible = false
-        
-        task.wait(1)
-        
-        if validKeys[key] then
-            -- Save the key to their computer
-            saveKey(key)
-            
-            Status.Text = "✅ Key saved! You won't need to enter it again."
-            Status.TextColor3 = Color3.fromRGB(100, 255, 100)
-            
-            task.wait(1)
-            ScreenGui:Destroy()
-            loadFlingScript(key)
-        else
-            Status.Text = "❌ Invalid key!"
-            Status.TextColor3 = Color3.fromRGB(255, 100, 100)
-            ActivateBtn.Visible = true
-            
-            task.delay(2, function()
-                Status.Text = "Enter your key to activate"
-                Status.TextColor3 = Color3.fromRGB(200, 200, 200)
-            end)
-        end
-    end)
-end
-
--- MAIN - Check if key is already saved
-local savedKey = loadSavedKey()
-
-if savedKey and validKeys[savedKey] then
-    -- Key is already saved and valid, load script immediately
-    print("Found saved key! Loading script...")
-    loadFlingScript(savedKey)
-else
-    -- No saved key or key is invalid, show entry GUI
-    if savedKey and not validKeys[savedKey] then
-        print("Saved key is invalid, clearing...")
-        clearSavedKey()
+        _wfConns = {}
     end
-    createKeyGUI()
 end
+
+-- ============ TP DOWN FUNCTION ============
+local function teleportToGround()
+    local character = player.Character
+    if not character then return false end
+    
+    local humanoid = character:FindFirstChild("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    
+    if not humanoid or not rootPart then return false end
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    
+    local rayOrigin = rootPart.Position
+    local rayDirection = Vector3.new(0, -500, 0)
+    local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    
+    local groundY = rayResult and rayResult.Position.Y or 0
+    local teleportPos = Vector3.new(rootPart.Position.X, groundY + 3, rootPart.Position.Z)
+    
+    rootPart.CFrame = CFrame.new(teleportPos)
+    humanoid.PlatformStand = false
+    humanoid.Sit = false
+    rootPart.Velocity = Vector3.new(0, 0, 0)
+    rootPart.RotVelocity = Vector3.new(0, 0, 0)
+    
+    task.wait(0.1)
+    
+    if character.PrimaryPart then
+        character:SetPrimaryPartCFrame(CFrame.new(teleportPos))
+    end
+    
+    return true
+end
+
+-- ============ CREATE ALL BUTTONS ============
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "UtilityGUI"
+ScreenGui.Parent = player.PlayerGui
+ScreenGui.ResetOnSpawn = false
+
+-- Button Container
+local Container = Instance.new("Frame")
+Container.Parent = ScreenGui
+Container.BackgroundTransparency = 1
+Container.Position = UDim2.new(0.02, 0, 0.3, 0)
+Container.Size = UDim2.new(0, 150, 0, 170)
+Container.Active = true
+Container.Draggable = true
+
+-- Slow Down Button
+local SlowDownButton = Instance.new("TextButton")
+SlowDownButton.Parent = Container
+SlowDownButton.Size = UDim2.new(0, 140, 0, 45)
+SlowDownButton.Position = UDim2.new(0, 5, 0, 5)
+SlowDownButton.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
+SlowDownButton.Font = Enum.Font.GothamBold
+SlowDownButton.Text = "🐢 SLOW DOWN"
+SlowDownButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+SlowDownButton.TextSize = 14
+
+local SlowCorner = Instance.new("UICorner")
+SlowCorner.Parent = SlowDownButton
+SlowCorner.CornerRadius = UDim.new(0, 8)
+
+-- DROP Button
+local DropButton = Instance.new("TextButton")
+DropButton.Parent = Container
+DropButton.Size = UDim2.new(0, 140, 0, 45)
+DropButton.Position = UDim2.new(0, 5, 0, 55)
+DropButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+DropButton.Font = Enum.Font.GothamBold
+DropButton.Text = "💥 DROP"
+DropButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+DropButton.TextSize = 16
+
+local DropCorner = Instance.new("UICorner")
+DropCorner.Parent = DropButton
+DropCorner.CornerRadius = UDim.new(0, 8)
+
+-- TP Down Button
+local TPDownButton = Instance.new("TextButton")
+TPDownButton.Parent = Container
+TPDownButton.Size = UDim2.new(0, 140, 0, 45)
+TPDownButton.Position = UDim2.new(0, 5, 0, 105)
+TPDownButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+TPDownButton.Font = Enum.Font.GothamBold
+TPDownButton.Text = "⬇️ TP DOWN"
+TPDownButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+TPDownButton.TextSize = 14
+
+local TPCorner = Instance.new("UICorner")
+TPCorner.Parent = TPDownButton
+TPCorner.CornerRadius = UDim.new(0, 8)
+
+-- Status Label
+local Status = Instance.new("TextLabel")
+Status.Parent = Container
+Status.Size = UDim2.new(0, 140, 0, 20)
+Status.Position = UDim2.new(0, 5, 0, 155)
+Status.BackgroundTransparency = 1
+Status.Font = Enum.Font.Gotham
+Status.Text = "Ready"
+Status.TextColor3 = Color3.fromRGB(150, 255, 150)
+Status.TextSize = 10
+
+-- ============ BUTTON FUNCTIONS ============
+
+-- Slow Down Button
+SlowDownButton.MouseButton1Click:Connect(function()
+    local result = setSlowDown()
+    
+    if result == "slowed" then
+        SlowDownButton.Text = "✓ 29.3"
+        SlowDownButton.BackgroundColor3 = Color3.fromRGB(41, 128, 185)
+        Status.Text = "Speed: 29.3"
+        Status.TextColor3 = Color3.fromRGB(255, 200, 100)
+        
+        task.delay(1.5, function()
+            if SlowDownButton then
+                SlowDownButton.Text = "🐢 SLOW DOWN"
+                SlowDownButton.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
+            end
+        end)
+    elseif result == "reset" then
+        SlowDownButton.Text = "✓ RESET"
+        SlowDownButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+        Status.Text = "Speed: " .. originalSpeed
+        Status.TextColor3 = Color3.fromRGB(150, 255, 150)
+        
+        task.delay(1.5, function()
+            if SlowDownButton then
+                SlowDownButton.Text = "🐢 SLOW DOWN"
+                SlowDownButton.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
+            end
+        end)
+    end
+end)
+
+-- DROP Button
+DropButton.MouseButton1Click:Connect(function()
+    if not dropEnabled then
+        toggleDrop(true)
+        DropButton.Text = "💢 ACTIVE!"
+        DropButton.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+        Status.Text = "FLING ACTIVE (5 sec)"
+        Status.TextColor3 = Color3.fromRGB(255, 100, 100)
+        
+        task.delay(5, function()
+            toggleDrop(false)
+            DropButton.Text = "💥 DROP"
+            DropButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+            Status.Text = "Ready"
+            Status.TextColor3 = Color3.fromRGB(150, 255, 150)
+        end)
+    end
+end)
+
+-- TP Down Button
+TPDownButton.MouseButton1Click:Connect(function()
+    if dropEnabled then
+        toggleDrop(false)
+        DropButton.Text = "💥 DROP"
+        DropButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+    end
+    
+    TPDownButton.Text = "⬇️ GOING DOWN"
+    TPDownButton.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+    Status.Text = "Teleporting to ground..."
+    
+    local success = teleportToGround()
+    
+    if success then
+        Status.Text = "Landed on feet!"
+        Status.TextColor3 = Color3.fromRGB(100, 255, 150)
+    else
+        Status.Text = "Teleport failed!"
+        Status.TextColor3 = Color3.fromRGB(255, 100, 100)
+    end
+    
+    task.delay(1.5, function()
+        if TPDownButton then
+            TPDownButton.Text = "⬇️ TP DOWN"
+            TPDownButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+            if not dropEnabled then
+                Status.Text = "Ready"
+                Status.TextColor3 = Color3.fromRGB(150, 255, 150)
+            end
+        end
+    end)
+end)
+
+print("✅ All 3 buttons loaded!")
+print("- 🐢 SLOW DOWN: Sets speed to 29.3")
+print("- 💥 DROP: Activates fling for 5 seconds")
+print("- ⬇️ TP DOWN: Teleports you to ground, landing on feet")
