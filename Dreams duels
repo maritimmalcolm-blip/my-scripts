@@ -1,0 +1,1241 @@
+--[[
+    DREAM AUTO DUEL + INF JUMP + AUTO GRAB + DROP
+    - Top Bar: Shows FPS & Ping (draggable)
+    - Auto Right Button (walks right path)
+    - Auto Left Button (walks left path)
+    - Float Button (toggle hover mode)
+    - Inf Jump Button (infinite jumps)
+    - Lock Button (bat aimbot)
+    - Auto Grab Button (auto collects items)
+    - Drop Button (fling/velocity spam)
+    Each button is draggable
+--]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Stats = game:GetService("Stats")
+
+local player = Players.LocalPlayer
+
+-- ========== WAYPOINTS ==========
+local rightWaypoints = {
+    Vector3.new(-473.04, -6.99, 29.71),
+    Vector3.new(-483.57, -5.10, 18.74),
+    Vector3.new(-475.00, -6.99, 26.43),
+    Vector3.new(-474.67, -6.94, 105.48),
+}
+
+local leftWaypoints = {
+    Vector3.new(-472.49, -7.00, 90.62),
+    Vector3.new(-484.62, -5.10, 100.37),
+    Vector3.new(-475.08, -7.00, 93.29),
+    Vector3.new(-474.22, -6.96, 16.18),
+}
+
+-- ========== AUTO DUEL VARIABLES ==========
+local patrolMode = "none"
+local floating = false
+local currentWaypoint = 1
+local heartbeatConn
+local waitingForCountdownLeft = false
+local waitingForCountdownRight = false
+local AUTO_START_DELAY = 0.7
+
+-- Button references
+local rightBtn = nil
+local leftBtn = nil
+local floatBtn = nil
+local infJumpBtn = nil
+local lockBtn = nil
+local autoGrabBtn = nil
+local dropBtn = nil
+
+-- ========== INF JUMP VARIABLES ==========
+local infinityJumpEnabled = true
+local jumpForce = 50
+local clampFallSpeed = 80
+local infJumpConnections = {}
+
+-- ========== AUTO GRAB VARIABLES ==========
+local AutoGrabEnabled = false
+local AutoGrabRadius = 35
+local AutoGrabConnection = nil
+local AutoGrabScanThread = nil
+local SpamToggleThread = nil
+local CachedGrabbables = {}
+local GRAB_COOLDOWN = 0.001
+local lastGrabTick = 0
+
+-- ========== BAT AIMBOT VARIABLES ==========
+local HUB_RED = Color3.fromRGB(255, 0, 0)
+local Values = { 
+    BAT_MOVE_SPEED = 60, 
+    BAT_ENGAGE_RANGE = 5,
+    MELEE_OFFSET = 3
+}
+
+local batAimbotEnabled = false
+local lockedTarget = nil
+local aimbotConnection = nil
+
+local aimbotHighlight = Instance.new("Highlight")
+aimbotHighlight.Name = "DreamAimbotESP"
+aimbotHighlight.FillColor = HUB_RED
+aimbotHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+aimbotHighlight.FillTransparency = 0.5
+pcall(function() aimbotHighlight.Parent = player:WaitForChild("PlayerGui") end)
+
+-- ========== DROP VARIABLES ==========
+local dropEnabled = false
+local _wfConns = {}
+local dropLoopThread = nil
+
+-- ========== AUTO DUEL FUNCTIONS ==========
+local function getCurrentSpeed()
+    if patrolMode == "right" then
+        if currentWaypoint >= 3 then
+            return 29.4
+        else
+            return 60
+        end
+    elseif patrolMode == "left" then
+        if currentWaypoint >= 3 then
+            return 29.4
+        else
+            return 60
+        end
+    end
+    return 0
+end
+
+local function getCurrentWaypoints()
+    if patrolMode == "right" then
+        return rightWaypoints
+    elseif patrolMode == "left" then
+        return leftWaypoints
+    end
+    return {}
+end
+
+local function startMovement(mode)
+    patrolMode = mode
+    currentWaypoint = 1
+    
+    if mode == "right" then
+        if rightBtn then
+            rightBtn.Text = "STOP"
+            TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(80, 40, 40)}):Play()
+        end
+        print("[Auto Right] Movement started")
+    elseif mode == "left" then
+        if leftBtn then
+            leftBtn.Text = "STOP"
+            TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(80, 40, 40)}):Play()
+        end
+        print("[Auto Left] Movement started")
+    end
+end
+
+local function stopMovement(mode)
+    if mode == "right" and patrolMode == "right" then
+        patrolMode = "none"
+        currentWaypoint = 1
+        waitingForCountdownRight = false
+        if rightBtn then
+            rightBtn.Text = "Auto Right"
+            TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(128, 0, 255)}):Play()
+        end
+        
+        local char = player.Character
+        if char then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+            end
+        end
+        print("[Auto Right] Stopped")
+    elseif mode == "left" and patrolMode == "left" then
+        patrolMode = "none"
+        currentWaypoint = 1
+        waitingForCountdownLeft = false
+        if leftBtn then
+            leftBtn.Text = "Auto Left"
+            TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(128, 0, 255)}):Play()
+        end
+        
+        local char = player.Character
+        if char then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+            end
+        end
+        print("[Auto Left] Stopped")
+    end
+end
+
+local function updateWalking()
+    local char = player.Character
+    if not char then return end
+
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    if not root or not hum then return end
+
+    local currentVel = root.AssemblyLinearVelocity
+
+    -- Float mode
+    if floating then
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        raycastParams.FilterDescendantsInstances = {char}
+
+        local raycastResult = workspace:Raycast(root.Position, Vector3.new(0, -50, 0), raycastParams)
+
+        if raycastResult then
+            local groundY = raycastResult.Position.Y
+            local targetY = groundY + 8
+            local currentY = root.Position.Y
+            local yDifference = targetY - currentY
+
+            if math.abs(yDifference) > 0.3 then
+                root.AssemblyLinearVelocity = Vector3.new(
+                    currentVel.X,
+                    yDifference * 15,
+                    currentVel.Z
+                )
+            else
+                root.AssemblyLinearVelocity = Vector3.new(
+                    currentVel.X,
+                    0,
+                    currentVel.Z
+                )
+            end
+        end
+    end
+
+    -- Patrol movement
+    if patrolMode ~= "none" then
+        local waypoints = getCurrentWaypoints()
+        if not waypoints[currentWaypoint] then return end
+        
+        local targetPos = waypoints[currentWaypoint]
+        local currentPos = root.Position
+
+        local targetXZ = Vector3.new(targetPos.X, 0, targetPos.Z)
+        local currentXZ = Vector3.new(currentPos.X, 0, currentPos.Z)
+        local distanceXZ = (targetXZ - currentXZ).Magnitude
+
+        if distanceXZ > 3 then
+            local moveDirection = (targetXZ - currentXZ).Unit
+            local currentSpeed = getCurrentSpeed()
+
+            root.AssemblyLinearVelocity = Vector3.new(
+                moveDirection.X * currentSpeed,
+                root.AssemblyLinearVelocity.Y,
+                moveDirection.Z * currentSpeed
+            )
+        else
+            if currentWaypoint == #waypoints then
+                patrolMode = "none"
+                currentWaypoint = 1
+                
+                if rightBtn then
+                    rightBtn.Text = "Auto Right"
+                    TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(128, 0, 255)}):Play()
+                end
+                if leftBtn then
+                    leftBtn.Text = "Auto Left"
+                    TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(128, 0, 255)}):Play()
+                end
+
+                root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+                print("[Auto Duel] Path completed")
+            else
+                currentWaypoint = currentWaypoint + 1
+                local speed = getCurrentSpeed()
+                print("[Auto Duel] Moving to waypoint " .. currentWaypoint .. " @ " .. speed .. " speed")
+            end
+        end
+    end
+end
+
+-- ========== INF JUMP FUNCTIONS ==========
+local function setupInfJump()
+    -- Clear old connections
+    for _, conn in ipairs(infJumpConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    infJumpConnections = {}
+    
+    -- Heartbeat connection (clamps fall speed)
+    local heartbeatConn = RunService.Heartbeat:Connect(function()
+        if not infinityJumpEnabled then return end
+        local char = player.Character
+        if not char then return end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp and hrp.Velocity.Y < -clampFallSpeed then
+            hrp.Velocity = Vector3.new(hrp.Velocity.X, -clampFallSpeed, hrp.Velocity.Z)
+        end
+    end)
+    table.insert(infJumpConnections, heartbeatConn)
+    
+    -- Jump request connection
+    local jumpConn = UserInputService.JumpRequest:Connect(function()
+        if not infinityJumpEnabled then return end
+        local char = player.Character
+        if not char then return end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.Velocity = Vector3.new(hrp.Velocity.X, jumpForce, hrp.Velocity.Z)
+        end
+    end)
+    table.insert(infJumpConnections, jumpConn)
+    
+    print("[Inf Jump] Enabled - Jump Force: " .. jumpForce)
+end
+
+local function toggleInfJump()
+    infinityJumpEnabled = not infinityJumpEnabled
+    
+    if infinityJumpEnabled then
+        if infJumpBtn then
+            infJumpBtn.Text = "INF ON"
+            infJumpBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+            if infJumpDot then infJumpDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0) end
+        end
+        print("[Inf Jump] ON")
+    else
+        if infJumpBtn then
+            infJumpBtn.Text = "INF OFF"
+            infJumpBtn.BackgroundColor3 = Color3.fromRGB(128, 0, 255)
+            if infJumpDot then infJumpDot.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end
+        end
+        print("[Inf Jump] OFF")
+    end
+end
+
+-- ========== AUTO GRAB FUNCTIONS ==========
+local function GetCharacter() return player.Character end
+local function GetHumanoid()
+    local c = GetCharacter()
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+local function GetRootPart()
+    local c = GetCharacter()
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function isMyBase(plotName)
+    local plots = workspace:FindFirstChild("Plots")
+    if not plots then return false end
+    local plot = plots:FindFirstChild(plotName)
+    if not plot then return false end
+    local sign = plot:FindFirstChild("PlotSign")
+    if sign then
+        local yourBase = sign:FindFirstChild("YourBase")
+        if yourBase and yourBase:IsA("BillboardGui") then
+            return yourBase.Enabled == true
+        end
+    end
+    return false
+end
+
+local function ScanGrabbables()
+    local results = {}
+    local plots = workspace:FindFirstChild("Plots")
+    if plots then
+        for _, plot in ipairs(plots:GetChildren()) do
+            if plot:IsA("Model") and not isMyBase(plot.Name) then
+                local podiums = plot:FindFirstChild("AnimalPodiums")
+                if podiums then
+                    for _, podium in ipairs(podiums:GetChildren()) do
+                        if podium:IsA("Model") then
+                            local base = podium:FindFirstChild("Base")
+                            local spawn = base and base:FindFirstChild("Spawn")
+                            local attach = spawn and spawn:FindFirstChild("PromptAttachment")
+                            if attach then
+                                for _, p in ipairs(attach:GetChildren()) do
+                                    if p:IsA("ProximityPrompt") then
+                                        results[#results+1] = { type="prompt", prompt=p, part=base or podium }
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                for _, item in ipairs(plot:GetChildren()) do
+                    if item:IsA("Tool") then
+                        local handle = item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart")
+                        if handle then
+                            results[#results+1] = { type="tool", tool=item, part=handle }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for _, folderName in ipairs({"Debris","Drops","Collectibles","DroppedItems"}) do
+        local folder = workspace:FindFirstChild(folderName)
+        if folder then
+            for _, desc in ipairs(folder:GetDescendants()) do
+                if desc:IsA("ProximityPrompt") then
+                    results[#results+1] = { type="prompt", prompt=desc, part=desc.Parent }
+                elseif desc:IsA("Tool") then
+                    local handle = desc:FindFirstChild("Handle") or desc:FindFirstChildWhichIsA("BasePart")
+                    if handle then results[#results+1] = { type="tool", tool=desc, part=handle } end
+                end
+            end
+        end
+    end
+    for _, item in ipairs(workspace:GetChildren()) do
+        if item:IsA("Tool") then
+            local handle = item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart")
+            if handle then results[#results+1] = { type="tool", tool=item, part=handle } end
+        end
+    end
+    CachedGrabbables = results
+end
+
+local function StartScan()
+    if AutoGrabScanThread then return end
+    AutoGrabScanThread = task.spawn(function()
+        while AutoGrabEnabled do
+            pcall(ScanGrabbables)
+            task.wait(0.01)
+        end
+        AutoGrabScanThread = nil
+    end)
+end
+
+local function TryGrab(item, humanoid)
+    if item.type == "prompt" then
+        if fireproximityprompt then
+            fireproximityprompt(item.prompt)
+        else
+            item.prompt:InputHoldBegin()
+            task.delay(0, function()
+                if item.prompt and item.prompt.Parent then
+                    item.prompt:InputHoldEnd()
+                end
+            end)
+        end
+    elseif item.type == "tool" then
+        pcall(function() humanoid:EquipTool(item.tool) end)
+    end
+end
+
+local function RunGrabLoop()
+    if AutoGrabConnection then AutoGrabConnection:Disconnect() end
+    AutoGrabConnection = RunService.Heartbeat:Connect(function()
+        if not AutoGrabEnabled then return end
+        local rootPart = GetRootPart()
+        local humanoid = GetHumanoid()
+        if not rootPart or not humanoid then return end
+        local now = tick()
+        if now - lastGrabTick < GRAB_COOLDOWN then return end
+        local myPos = rootPart.Position
+        local radius = AutoGrabRadius
+        local bestDist = radius + 1
+        local bestItem = nil
+        for _, item in ipairs(CachedGrabbables) do
+            if item.part and item.part.Parent then
+                local ok, pos = pcall(function()
+                    return item.part:IsA("BasePart") and item.part.Position or item.part:GetPivot().Position
+                end)
+                if ok and pos then
+                    local dist = (pos - myPos).Magnitude
+                    if dist < bestDist then
+                        if item.type == "prompt" and item.prompt and item.prompt.Parent and item.prompt.Enabled then
+                            bestDist = dist
+                            bestItem = item
+                        elseif item.type == "tool" and item.tool and item.tool.Parent then
+                            bestDist = dist
+                            bestItem = item
+                        end
+                    end
+                end
+            end
+        end
+        if bestItem then
+            lastGrabTick = now
+            TryGrab(bestItem, humanoid)
+        end
+    end)
+end
+
+local function StartSpamToggle()
+    if SpamToggleThread then return end
+    SpamToggleThread = task.spawn(function()
+        while AutoGrabEnabled do
+            RunGrabLoop()
+            task.wait(0.015)
+            if AutoGrabConnection then
+                AutoGrabConnection:Disconnect()
+                AutoGrabConnection = nil
+            end
+            task.wait(0.005)
+        end
+        SpamToggleThread = nil
+    end)
+end
+
+local function StopAutoGrab()
+    AutoGrabEnabled = false
+    if SpamToggleThread then
+        task.cancel(SpamToggleThread)
+        SpamToggleThread = nil
+    end
+    if AutoGrabConnection then
+        AutoGrabConnection:Disconnect()
+        AutoGrabConnection = nil
+    end
+    if AutoGrabScanThread then
+        task.cancel(AutoGrabScanThread)
+        AutoGrabScanThread = nil
+    end
+    CachedGrabbables = {}
+    if autoGrabBtn then
+        autoGrabBtn.Text = "Grab OFF"
+        TweenService:Create(autoGrabBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(128, 0, 255)}):Play()
+    end
+end
+
+local function StartAutoGrab()
+    AutoGrabEnabled = true
+    StartScan()
+    StartSpamToggle()
+    if autoGrabBtn then
+        autoGrabBtn.Text = "Grab ON"
+        TweenService:Create(autoGrabBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(0, 150, 0)}):Play()
+    end
+end
+
+local function ToggleAutoGrab()
+    if AutoGrabEnabled then
+        StopAutoGrab()
+    else
+        StartAutoGrab()
+    end
+end
+
+-- ========== BAT AIMBOT FUNCTIONS ==========
+local function isTargetValid(targetChar)
+    if not targetChar then return false end
+    local hum = targetChar:FindFirstChildOfClass("Humanoid")
+    local hrp = targetChar:FindFirstChild("HumanoidRootPart")
+    return hum and hrp and hum.Health > 0 and not targetChar:FindFirstChildOfClass("ForceField")
+end
+
+local function getBestTarget(myHRP)
+    if lockedTarget and isTargetValid(lockedTarget) then return lockedTarget:FindFirstChild("HumanoidRootPart"), lockedTarget end
+    local shortestDist = math.huge
+    local newTargetChar, newTargetHRP = nil, nil
+    for _, targetPlayer in ipairs(Players:GetPlayers()) do
+        if targetPlayer ~= player and isTargetValid(targetPlayer.Character) then
+            local targetHRP = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local distance = (targetHRP.Position - myHRP.Position).Magnitude
+            if distance < shortestDist then shortestDist = distance; newTargetHRP = targetHRP; newTargetChar = targetPlayer.Character end
+        end
+    end
+    lockedTarget = newTargetChar
+    return newTargetHRP, newTargetChar
+end
+
+local function findBatTool()
+    local c = player.Character if not c then return nil end
+    local bp = player:FindFirstChildOfClass("Backpack")
+    local SlapList = {"Bat","Slap","Iron Slap","Gold Slap","Diamond Slap","Emerald Slap","Ruby Slap"}
+    for _, ch in ipairs(c:GetChildren()) do if ch:IsA("Tool") and ch.Name:lower():find("bat") then return ch end end
+    if bp then for _, ch in ipairs(bp:GetChildren()) do if ch:IsA("Tool") and ch.Name:lower():find("bat") then return ch end end end
+    for _, name in ipairs(SlapList) do 
+        local t = c:FindFirstChild(name) or (bp and bp:FindFirstChild(name)) 
+        if t then return t end 
+    end
+    return nil
+end
+
+local function startBatAimbot()
+    local c = player.Character if not c then return end
+    local h = c:FindFirstChild("HumanoidRootPart")
+    local hum = c:FindFirstChildOfClass("Humanoid")
+    if not h or not hum then return end
+
+    hum.AutoRotate = false
+    local attachment = h:FindFirstChild("AimbotAttachment") or Instance.new("Attachment", h)
+    attachment.Name = "AimbotAttachment"
+    local align = h:FindFirstChild("AimbotAlign") or Instance.new("AlignOrientation", h)
+    align.Name = "AimbotAlign"
+    align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+    align.Attachment0 = attachment
+    align.MaxTorque = math.huge
+    align.Responsiveness = 200
+    
+    batAimbotEnabled = true
+    aimbotConnection = RunService.Heartbeat:Connect(function()
+        if not batAimbotEnabled then return end
+        local root = c:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        
+        local bat = findBatTool()
+        if bat and bat.Parent ~= c then hum:EquipTool(bat) end
+        
+        local targetHRP, targetChar = getBestTarget(root)
+        if targetHRP and targetChar then
+            aimbotHighlight.Adornee = targetChar
+            local targetVelocity = targetHRP.AssemblyLinearVelocity
+            local predictedPos = targetHRP.Position + (targetVelocity * 0.12)
+            local dirToTarget = (predictedPos - root.Position)
+            
+            align.CFrame = CFrame.lookAt(root.Position, predictedPos)
+            
+            local targetStandPos = predictedPos - (dirToTarget.Unit * Values.MELEE_OFFSET)
+            local moveDir = (targetStandPos - root.Position)
+            
+            if moveDir.Magnitude > 1 then 
+                root.AssemblyLinearVelocity = moveDir.Unit * Values.BAT_MOVE_SPEED 
+            else 
+                root.AssemblyLinearVelocity = targetVelocity 
+            end
+            
+            if moveDir.Magnitude <= Values.BAT_ENGAGE_RANGE then 
+                if bat and bat.Parent == c then bat:Activate() end 
+            end
+        else
+            root.AssemblyLinearVelocity = Vector3.zero
+            aimbotHighlight.Adornee = nil
+        end
+    end)
+end
+
+local function stopBatAimbot()
+    batAimbotEnabled = false
+    if aimbotConnection then aimbotConnection:Disconnect() aimbotConnection = nil end
+    local c = player.Character
+    local h = c and c:FindFirstChild("HumanoidRootPart")
+    if h then
+        if h:FindFirstChild("AimbotAttachment") then h.AimbotAttachment:Destroy() end
+        if h:FindFirstChild("AimbotAlign") then h.AimbotAlign:Destroy() end
+    end
+    if c and c:FindFirstChildOfClass("Humanoid") then c:FindFirstChildOfClass("Humanoid").AutoRotate = true end
+    aimbotHighlight.Adornee = nil
+end
+
+-- ========== DROP FUNCTIONS ==========
+local function toggleDrop(state)
+    dropEnabled = state
+    
+    if dropEnabled then
+        local colConn = RunService.Stepped:Connect(function()
+            if not dropEnabled then return end
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= player and p.Character then
+                    for _, part in ipairs(p.Character:GetChildren()) do
+                        if part:IsA("BasePart") then 
+                            part.CanCollide = false 
+                        end
+                    end
+                end
+            end
+        end)
+        table.insert(_wfConns, colConn)
+
+        dropLoopThread = task.spawn(function()
+            while dropEnabled do
+                RunService.Heartbeat:Wait()
+                local c = player.Character
+                local root = c and c:FindFirstChild("HumanoidRootPart")
+                
+                if not root then continue end
+                
+                local vel = root.Velocity
+                root.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
+                
+                RunService.RenderStepped:Wait()
+                if root and root.Parent then root.Velocity = vel end
+                
+                RunService.Stepped:Wait()
+                if root and root.Parent then 
+                    root.Velocity = vel + Vector3.new(0, 0.1, 0) 
+                end
+            end
+        end)
+    else
+        if dropLoopThread then
+            task.cancel(dropLoopThread)
+            dropLoopThread = nil
+        end
+        for _, c in ipairs(_wfConns) do
+            if typeof(c) == "RBXScriptConnection" then c:Disconnect() end
+        end
+        _wfConns = {}
+    end
+end
+
+-- ========== COUNTDOWN DETECTION ==========
+local function isCountdownNumber(text)
+    local num = tonumber(text)
+    if num and num >= 1 and num <= 5 then
+        return true, num
+    end
+    return false
+end
+
+local function isTimerInCountdown(label)
+    if not label then return false end
+    local ok, num = isCountdownNumber(label.Text)
+    return ok and num >= 1 and num <= 5
+end
+
+-- ========== DREAM DUELS TOP BAR ==========
+local topBarGui = Instance.new("ScreenGui")
+topBarGui.Name = "DreamDuelsTopBar"
+topBarGui.Parent = player:WaitForChild("PlayerGui")
+topBarGui.ResetOnSpawn = false
+topBarGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+
+local topBar = Instance.new("ImageButton")
+topBar.Size = UDim2.new(0, 280, 0, 45)
+topBar.Position = UDim2.new(0.5, -140, 0, 10)
+topBar.BackgroundColor3 = Color3.fromRGB(128, 0, 255)
+topBar.BackgroundTransparency = 0
+topBar.BorderSizePixel = 0
+topBar.AutoButtonColor = false
+topBar.Parent = topBarGui
+
+local barCorner = Instance.new("UICorner")
+barCorner.CornerRadius = UDim.new(0, 12)
+barCorner.Parent = topBar
+
+local barStroke = Instance.new("UIStroke")
+barStroke.Color = Color3.fromRGB(255, 255, 255)
+barStroke.Thickness = 1.5
+barStroke.Transparency = 0.3
+barStroke.Parent = topBar
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(0, 100, 1, 0)
+titleText.Position = UDim2.new(0, 10, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "DREAM DUELS"
+titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleText.TextSize = 14
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Font = Enum.Font.GothamBold
+titleText.Parent = topBar
+
+local line1 = Instance.new("Frame")
+line1.Size = UDim2.new(0, 1, 0, 25)
+line1.Position = UDim2.new(0, 115, 0.5, -12.5)
+line1.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+line1.BackgroundTransparency = 0.5
+line1.BorderSizePixel = 0
+line1.Parent = topBar
+
+local fpsText = Instance.new("TextLabel")
+fpsText.Size = UDim2.new(0, 70, 1, 0)
+fpsText.Position = UDim2.new(0, 125, 0, 0)
+fpsText.BackgroundTransparency = 1
+fpsText.Text = "FPS: --"
+fpsText.TextColor3 = Color3.fromRGB(255, 255, 255)
+fpsText.TextSize = 13
+fpsText.Font = Enum.Font.GothamBold
+fpsText.Parent = topBar
+
+local line2 = Instance.new("Frame")
+line2.Size = UDim2.new(0, 1, 0, 25)
+line2.Position = UDim2.new(0, 200, 0.5, -12.5)
+line2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+line2.BackgroundTransparency = 0.5
+line2.BorderSizePixel = 0
+line2.Parent = topBar
+
+local pingText = Instance.new("TextLabel")
+pingText.Size = UDim2.new(0, 70, 1, 0)
+pingText.Position = UDim2.new(0, 210, 0, 0)
+pingText.BackgroundTransparency = 1
+pingText.Text = "PING: --"
+pingText.TextColor3 = Color3.fromRGB(255, 255, 255)
+pingText.TextSize = 13
+pingText.Font = Enum.Font.GothamBold
+pingText.Parent = topBar
+
+-- FPS counter
+local lastTime = tick()
+local frameCount = 0
+
+RunService.RenderStepped:Connect(function()
+    frameCount = frameCount + 1
+    local currentTime = tick()
+    if currentTime - lastTime >= 1 then
+        local currentFPS = frameCount
+        frameCount = 0
+        lastTime = currentTime
+        fpsText.Text = "FPS: " .. currentFPS
+        if currentFPS >= 60 then
+            fpsText.TextColor3 = Color3.fromRGB(0, 255, 0)
+        elseif currentFPS >= 30 then
+            fpsText.TextColor3 = Color3.fromRGB(255, 255, 0)
+        else
+            fpsText.TextColor3 = Color3.fromRGB(255, 0, 0)
+        end
+    end
+end)
+
+-- Ping counter
+spawn(function()
+    while true do
+        local stats = Stats:FindFirstChild("Network")
+        if stats and stats:FindFirstChild("Ping") then
+            local pingValue = math.floor(stats.Ping.Value)
+            pingText.Text = "PING: " .. pingValue
+            if pingValue <= 60 then
+                pingText.TextColor3 = Color3.fromRGB(0, 255, 0)
+            elseif pingValue <= 120 then
+                pingText.TextColor3 = Color3.fromRGB(255, 255, 0)
+            else
+                pingText.TextColor3 = Color3.fromRGB(255, 0, 0)
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+-- Top bar dragging
+local barDragging = false
+local barDragStart
+local barStartPos
+
+topBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        barDragging = true
+        barDragStart = input.Position
+        barStartPos = topBar.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                barDragging = false
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if barDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - barDragStart
+        local screenSize = game:GetService("GuiService"):GetScreenResolution()
+        local newX = math.clamp(barStartPos.X.Offset + delta.X, 0, screenSize.X - 280)
+        local newY = math.clamp(barStartPos.Y.Offset + delta.Y, 0, screenSize.Y - 45)
+        topBar.Position = UDim2.new(0, newX, 0, newY)
+    end
+end)
+
+topBar.MouseEnter:Connect(function()
+    TweenService:Create(topBar, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(160, 50, 255)}):Play()
+    TweenService:Create(barStroke, TweenInfo.new(0.2), {Transparency = 0.1, Thickness = 2}):Play()
+end)
+
+topBar.MouseLeave:Connect(function()
+    TweenService:Create(topBar, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(128, 0, 255)}):Play()
+    TweenService:Create(barStroke, TweenInfo.new(0.2), {Transparency = 0.3, Thickness = 1.5}):Play()
+end)
+
+-- ========== CREATE DRAGGABLE BUTTON ==========
+local function createDraggableButton(name, text, yPos, color, hasDot)
+    local gui = Instance.new("ScreenGui")
+    gui.Name = name .. "Button"
+    gui.Parent = player:WaitForChild("PlayerGui")
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    
+    local btn = Instance.new("ImageButton")
+    btn.Size = UDim2.new(0, 140, 0, 50)
+    btn.Position = UDim2.new(0, 20, 0, yPos)
+    btn.BackgroundColor3 = color or Color3.fromRGB(128, 0, 255)
+    btn.BackgroundTransparency = 0
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
+    btn.Parent = gui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = btn
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Thickness = 1.5
+    stroke.Transparency = 0.3
+    stroke.Parent = btn
+    
+    local btnText = Instance.new("TextLabel")
+    btnText.Size = UDim2.new(1, 0, 1, 0)
+    btnText.BackgroundTransparency = 1
+    btnText.Text = text
+    btnText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btnText.TextSize = 14
+    btnText.Font = Enum.Font.GothamBold
+    btnText.Parent = btn
+    
+    local statusDot = nil
+    if hasDot then
+        statusDot = Instance.new("Frame")
+        statusDot.Size = UDim2.new(0, 10, 0, 10)
+        statusDot.Position = UDim2.new(0.85, 0, 0.5, -5)
+        statusDot.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        statusDot.BorderSizePixel = 0
+        statusDot.Parent = btn
+        local dotCorner = Instance.new("UICorner")
+        dotCorner.CornerRadius = UDim.new(1, 0)
+        dotCorner.Parent = statusDot
+    end
+    
+    local dragging = false
+    local dragStart
+    local btnStartPos
+    
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            btnStartPos = btn.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            local screenSize = game:GetService("GuiService"):GetScreenResolution()
+            local newX = math.clamp(btnStartPos.X.Offset + delta.X, 0, screenSize.X - 140)
+            local newY = math.clamp(btnStartPos.Y.Offset + delta.Y, 0, screenSize.Y - 50)
+            btn.Position = UDim2.new(0, newX, 0, newY)
+        end
+    end)
+    
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(160, 50, 255)}):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.2), {Transparency = 0.1, Thickness = 2}):Play()
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        local isSpecial = false
+        if name == "RightBtn" and patrolMode == "right" then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(80, 40, 40)}):Play()
+            isSpecial = true
+        elseif name == "LeftBtn" and patrolMode == "left" then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(80, 40, 40)}):Play()
+            isSpecial = true
+        elseif name == "FloatBtn" and floating then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 80, 40)}):Play()
+            isSpecial = true
+        elseif name == "InfJumpBtn" and infinityJumpEnabled then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 80, 40)}):Play()
+            isSpecial = true
+        elseif name == "LockBtn" and batAimbotEnabled then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 80, 40)}):Play()
+            isSpecial = true
+        elseif name == "AutoGrabBtn" and AutoGrabEnabled then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 80, 40)}):Play()
+            isSpecial = true
+        elseif name == "DropBtn" and dropEnabled then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 80, 40)}):Play()
+            isSpecial = true
+        end
+        if not isSpecial then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color or Color3.fromRGB(128, 0, 255)}):Play()
+        end
+        TweenService:Create(stroke, TweenInfo.new(0.2), {Transparency = 0.3, Thickness = 1.5}):Play()
+    end)
+    
+    btn.MouseButton1Click:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.08), {BackgroundTransparency = 0.3}):Play()
+        task.wait(0.08)
+        TweenService:Create(btn, TweenInfo.new(0.08), {BackgroundTransparency = 0}):Play()
+    end)
+    
+    return btn, gui, statusDot
+end
+
+-- ========== RIGHT BUTTON ==========
+local function setupRightButton()
+    local btn, gui = createDraggableButton("RightBtn", "Auto Right", 80, Color3.fromRGB(128, 0, 255), false)
+    rightBtn = btn
+    
+    btn.MouseButton1Click:Connect(function()
+        if patrolMode == "right" or waitingForCountdownRight then
+            stopMovement("right")
+        else
+            local success, label = pcall(function()
+                return player.PlayerGui
+                    :FindFirstChild("DuelsMachineTopFrame")
+                    and player.PlayerGui.DuelsMachineTopFrame
+                    :FindFirstChild("DuelsMachineTopFrame")
+                    and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame
+                    :FindFirstChild("Timer")
+                    and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame.Timer
+                    :FindFirstChild("Label")
+            end)
+            
+            if patrolMode == "left" then
+                stopMovement("left")
+            end
+            
+            if success and label and isTimerInCountdown(label) then
+                waitingForCountdownRight = true
+                rightBtn.Text = "Wait..."
+                TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(255, 200, 50)}):Play()
+                print("[Auto Right] Waiting for countdown")
+            else
+                startMovement("right")
+            end
+        end
+    end)
+end
+
+-- ========== LEFT BUTTON ==========
+local function setupLeftButton()
+    local btn, gui = createDraggableButton("LeftBtn", "Auto Left", 140, Color3.fromRGB(128, 0, 255), false)
+    leftBtn = btn
+    
+    btn.MouseButton1Click:Connect(function()
+        if patrolMode == "left" or waitingForCountdownLeft then
+            stopMovement("left")
+        else
+            local success, label = pcall(function()
+                return player.PlayerGui
+                    :FindFirstChild("DuelsMachineTopFrame")
+                    and player.PlayerGui.DuelsMachineTopFrame
+                    :FindFirstChild("DuelsMachineTopFrame")
+                    and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame
+                    :FindFirstChild("Timer")
+                    and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame.Timer
+                    :FindFirstChild("Label")
+            end)
+            
+            if patrolMode == "right" then
+                stopMovement("right")
+            end
+            
+            if success and label and isTimerInCountdown(label) then
+                waitingForCountdownLeft = true
+                leftBtn.Text = "Wait..."
+                TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(255, 200, 50)}):Play()
+                print("[Auto Left] Waiting for countdown")
+            else
+                startMovement("left")
+            end
+        end
+    end)
+end
+
+-- ========== FLOAT BUTTON ==========
+local function setupFloatButton()
+    local btn, gui = createDraggableButton("FloatBtn", "Float OFF", 200, Color3.fromRGB(128, 0, 255), false)
+    floatBtn = btn
+    
+    btn.MouseButton1Click:Connect(function()
+        floating = not floating
+        
+        if floating then
+            floatBtn.Text = "Float ON"
+            floatBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+            print("[Float] ON")
+        else
+            floatBtn.Text = "Float OFF"
+            floatBtn.BackgroundColor3 = Color3.fromRGB(128, 0, 255)
+            
+            local char = player.Character
+            if char then
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+                end
+            end
+            print("[Float] OFF")
+        end
+    end)
+end
+
+-- ========== INF JUMP BUTTON ==========
+local infJumpDot = nil
+local function setupInfJumpButton()
+    local btn, gui, dot = createDraggableButton("InfJumpBtn", "INF ON", 260, Color3.fromRGB(40, 80, 40), true)
+    infJumpBtn = btn
+    infJumpDot = dot
+    
+    if infJumpDot then infJumpDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0) end
+    
+    btn.MouseButton1Click:Connect(function()
+        toggleInfJump()
+    end)
+end
+
+-- ========== LOCK BUTTON ==========
+local function setupLockButton()
+    local btn, gui, dot = createDraggableButton("LockBtn", "LOCK", 320, Color3.fromRGB(128, 0, 255), true)
+    lockBtn = btn
+    local lockDot = dot
+    
+    btn.MouseButton1Click:Connect(function()
+        if batAimbotEnabled then
+            stopBatAimbot()
+            if lockDot then lockDot.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end
+            lockBtn.Text = "LOCK"
+            lockBtn.BackgroundColor3 = Color3.fromRGB(128, 0, 255)
+            print("[LOCK] Off")
+        else
+            startBatAimbot()
+            if lockDot then lockDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0) end
+            lockBtn.Text = "UNLOCK"
+            lockBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+            print("[LOCK] On")
+        end
+    end)
+end
+
+-- ========== AUTO GRAB BUTTON ==========
+local function setupAutoGrabButton()
+    local btn, gui = createDraggableButton("AutoGrabBtn", "Grab OFF", 380, Color3.fromRGB(128, 0, 255), false)
+    autoGrabBtn = btn
+    
+    btn.MouseButton1Click:Connect(function()
+        ToggleAutoGrab()
+        if AutoGrabEnabled then
+            autoGrabBtn.Text = "Grab ON"
+            autoGrabBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+        else
+            autoGrabBtn.Text = "Grab OFF"
+            autoGrabBtn.BackgroundColor3 = Color3.fromRGB(128, 0, 255)
+        end
+    end)
+end
+
+-- ========== DROP BUTTON ==========
+local function setupDropButton()
+    local btn, gui, dot = createDraggableButton("DropBtn", "DROP OFF", 440, Color3.fromRGB(128, 0, 255), true)
+    dropBtn = btn
+    local dropDot = dot
+    
+    btn.MouseButton1Click:Connect(function()
+        dropEnabled = not dropEnabled
+        toggleDrop(dropEnabled)
+        
+        if dropEnabled then
+            dropBtn.Text = "DROP ON"
+            dropBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+            if dropDot then dropDot.BackgroundColor3 = Color3.fromRGB(0, 255, 0) end
+            print("[DROP] On")
+        else
+            dropBtn.Text = "DROP OFF"
+            dropBtn.BackgroundColor3 = Color3.fromRGB(128, 0, 255)
+            if dropDot then dropDot.BackgroundColor3 = Color3.fromRGB(60, 60, 60) end
+            print("[DROP] Off")
+        end
+    end)
+end
+
+-- ========== COUNTDOWN LISTENER ==========
+local function onTextChanged(label)
+    local text = label.Text
+    local ok, number = isCountdownNumber(text)
+    
+    if ok and number == 1 then
+        if waitingForCountdownLeft then
+            print("[Auto Duel] Countdown finished! Starting Auto Left...")
+            task.wait(AUTO_START_DELAY)
+            waitingForCountdownLeft = false
+            startMovement("left")
+        end
+        if waitingForCountdownRight then
+            print("[Auto Duel] Countdown finished! Starting Auto Right...")
+            task.wait(AUTO_START_DELAY)
+            waitingForCountdownRight = false
+            startMovement("right")
+        end
+    end
+end
+
+-- ========== INITIALIZE ==========
+heartbeatConn = RunService.Heartbeat:Connect(updateWalking)
+
+-- Setup Inf Jump first
+setupInfJump()
+
+-- Setup all buttons
+setupRightButton()
+setupLeftButton()
+setupFloatButton()
+setupInfJumpButton()
+setupLockButton()
+setupAutoGrabButton()
+setupDropButton()
+
+-- Countdown detection
+spawn(function()
+    local success, label = pcall(function()
+        return player.PlayerGui
+            :FindFirstChild("DuelsMachineTopFrame")
+            and player.PlayerGui.DuelsMachineTopFrame
+            :FindFirstChild("DuelsMachineTopFrame")
+            and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame
+            :FindFirstChild("Timer")
+            and player.PlayerGui.DuelsMachineTopFrame.DuelsMachineTopFrame.Timer
+            :FindFirstChild("Label")
+    end)
+    
+    if success and label then
+        print("[Auto Duel] Timer found! Countdown detection enabled.")
+        onTextChanged(label)
+        label:GetPropertyChangedSignal("Text"):Connect(function()
+            onTextChanged(label)
+        end)
+    else
+        print("[Auto Duel] Timer not found. Auto movements start immediately.")
+    end
+end)
+
+-- Character respawn handler
+player.CharacterAdded:Connect(function()
+    task.wait(1)
+    patrolMode = "none"
+    currentWaypoint = 1
+    waitingForCountdownLeft = false
+    waitingForCountdownRight = false
+    
+    if rightBtn then
+        rightBtn.Text = "Auto Right"
+        TweenService:Create(rightBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(128, 0, 255)}):Play()
+    end
+    if leftBtn then
+        leftBtn.Text = "Auto Left"
+        TweenService:Create(leftBtn, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(128, 0, 255)}):Play()
+    end
+    if floatBtn then
+        floating = false
+        floatBtn.Text = "Float OFF"
+        floatBtn.BackgroundColor3 = Color3.fromRGB(128, 0, 255)
+    end
+end)
+
+print("========================================")
+print("   DREAM AUTO DUEL - COMPLETE")
+print("========================================")
+print("   TOP BAR: FPS + Ping (draggable)")
+print("   Auto Right - Walks right path")
+print("   Auto Left  - Walks left path")
+print("   Float      - Hover mode")
+print("   INF JUMP   - Infinite jumps!")
+print("   LOCK       - Bat Aimbot")
+print("   Grab       - Auto collects items")
+print("   DROP       - Fling mode")
+print("========================================")
+print("   All buttons are DRAGGABLE!")
+print("   INF JUMP is ON by default")
+print("========================================")
